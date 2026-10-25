@@ -52,7 +52,6 @@ summary{cursor:pointer;color:var(--accent);font-size:.9rem;min-height:32px;displ
 .routes b{display:inline-block;min-width:2.2em}
 .none{color:var(--muted);font-size:.9rem;margin-top:6px}
 .leaflet-container{font:inherit}
-
 .rt{margin:0 16px 10px;border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:2px 14px}
 .rt summary{min-height:44px}
 .rt .row{display:grid;gap:8px;padding:4px 0 12px}
@@ -117,7 +116,6 @@ summary{cursor:pointer;color:var(--accent);font-size:.9rem;min-height:32px;displ
   var statusEl=document.getElementById("status"), listEl=document.getElementById("list"), radiusEl=document.getElementById("radius");
   var last=null;
 
-  // ---- Tranzy (timp real) ----
   var RT={key:null, agency:null, ready:false, routes:{}, stops:{}, stopList:[], tripSeq:{}, stopRoutes:{}, timer:null, shown:[]};
   var rtStatus=document.getElementById("rtstatus"), rtBadge=document.getElementById("rtbadge");
   var rtKey=document.getElementById("rtkey"), rtAgency=document.getElementById("rtagency"), rtBtn=document.getElementById("rtconnect");
@@ -131,6 +129,44 @@ summary{cursor:pointer;color:var(--accent);font-size:.9rem;min-height:32px;displ
     var s1=Math.sin(dLat/2), s2=Math.sin(dLon/2);
     var x=s1*s1 + Math.cos(a[0]*r)*Math.cos(b[0]*r)*s2*s2;
     return 2*R*Math.asin(Math.sqrt(x));
+  }
+
+  // ---------- Overpass fallback ----------
+  var OVERPASS_LIST = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter"
+  ];
+
+  function fetchOverpass(q, idx, errs, label){
+    errs = errs || [];
+    idx = idx || 0;
+    label = label || "Interoghez Overpass";
+
+    if(idx >= OVERPASS_LIST.length){
+      var e = new Error(errs.join(" | "));
+      e.all = true;
+      return Promise.reject(e);
+    }
+
+    var base = OVERPASS_LIST[idx];
+    var host = base.split("/")[2];
+    var ctl = new AbortController();
+    var timer = setTimeout(function(){ ctl.abort(); }, 20000);
+
+    setStatus(label + " (" + host + ")…");
+
+    return fetch(base + "?data=" + encodeURIComponent(q), { signal: ctl.signal })
+      .then(function(r){
+        clearTimeout(timer);
+        if(!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .catch(function(err){
+        clearTimeout(timer);
+        var why = (err && err.name === "AbortError") ? "timeout" : (err && err.message ? err.message : "network");
+        errs.push(host + ": " + why);
+        return fetchOverpass(q, idx + 1, errs, label);
+      });
   }
 
   function tz(path){
@@ -166,8 +202,7 @@ summary{cursor:pointer;color:var(--accent);font-size:.9rem;min-height:32px;displ
       if(last) setPosition(last[0],last[1],false); else setStatus("Apasă pe buton sau atinge un punct pe hartă.");
     }).catch(function(e){
       rtBadge.textContent="";
-      var msg=(e instanceof TypeError)?"Browserul a blocat cererea (probabil CORS) sau nu ai internet.":"Nu m-am putut conecta: "+e.message;
-      setRt(msg);
+      setRt((e instanceof TypeError)?"Browserul a blocat cererea (CORS) sau nu ai internet.":"Nu m-am putut conecta: "+e.message);
     }).then(function(){rtBtn.disabled=false;});
   }
 
@@ -230,53 +265,6 @@ summary{cursor:pointer;color:var(--accent);font-size:.9rem;min-height:32px;displ
     }).catch(function(e){ setStatus("Nu am putut citi vehiculele ("+e.message+")."); });
   }
 
-  // ---- OpenStreetMap / Overpass ----
-  var OVERPASS_LIST = [
-    "https://overpass-api.de/api/interpreter",
-    "https://overpass.kumi.systems/api/interpreter"
-  ];
-
-  function fetchOverpass(q, idx, errs, label){
-    errs = errs || [];
-    idx = idx || 0;
-    label = label || "Interoghez Overpass";
-
-    if(idx >= OVERPASS_LIST.length){
-      var e = new Error(errs.join(" | "));
-      e.all = true;
-      return Promise.reject(e);
-    }
-
-    var base = OVERPASS_LIST[idx];
-    var host = base.split("/")[2];
-    var ctl = new AbortController();
-    var timer = setTimeout(function(){ ctl.abort(); }, 20000);
-
-    setStatus(label + " (" + host + ")…");
-
-    return fetch(base + "?data=" + encodeURIComponent(q), { signal: ctl.signal })
-      .then(function(r){
-        clearTimeout(timer);
-        if(!r.ok) throw new Error("HTTP " + r.status);
-        return r.json();
-      })
-      .catch(function(err){
-        clearTimeout(timer);
-        var why = (err && err.name === "AbortError") ? "timeout" : (err && err.message ? err.message : "network");
-        errs.push(host + ": " + why);
-        return fetchOverpass(q, idx + 1, errs, label);
-      });
-  }
-
-  function queryStops(lat,lon,rad){
-    var a="(around:"+rad+","+lat+","+lon+")";
-    return "[out:json][timeout:20];(node"+a+"[public_transport=platform];node"+a+"[highway=bus_stop];node"+a+"[railway=tram_stop];);out body;";
-  }
-  function queryRoutes(lat,lon,rad){
-    var a="(around:"+rad+","+lat+","+lon+")";
-    return "[out:json][timeout:25];(node"+a+"[public_transport=platform];node"+a+"[highway=bus_stop];node"+a+"[railway=tram_stop];)->.s;rel(bn.s)[type=route][route~\"^(bus|tram|trolleybus)$\"];out body;";
-  }
-
   function setPosition(lat,lon,fly){
     last=[lat,lon];
     if(me) map.removeLayer(me); if(circle) map.removeLayer(circle);
@@ -285,6 +273,23 @@ summary{cursor:pointer;color:var(--accent);font-size:.9rem;min-height:32px;displ
     circle=L.circle(last,{radius:rad,color:"#0b5c8a",weight:1,fillOpacity:.06}).addTo(map);
     if(fly) map.fitBounds(circle.getBounds(),{padding:[10,10]});
     if(RT.ready) loadRT(lat,lon,rad); else { stopTimer(); loadOSM(lat,lon,rad); }
+  }
+
+  function queryStops(lat,lon,rad){
+    var a="(around:"+rad+","+lat+","+lon+")";
+    return "[out:json][timeout:20];(node"+a+"[public_transport=platform];node"+a+"[highway=bus_stop];node"+a+"[railway=tram_stop];);out body;";
+  }
+
+  // IMPORTANT: căutăm rute în jurul stațiilor (nu doar member direct)
+  function queryRoutes(lat,lon,rad){
+    var a="(around:"+rad+","+lat+","+lon+")";
+    return "[out:json][timeout:30];" +
+      "(" +
+        "node"+a+"[public_transport=platform];" +
+        "node"+a+"[highway=bus_stop];" +
+        "node"+a+"[railway=tram_stop];" +
+      ")->.s;" +
+      "rel(around.s:80)[type=route][route~\"^(bus|tram|trolleybus)$\"];out body;";
   }
 
   var reqId=0;
@@ -298,7 +303,6 @@ summary{cursor:pointer;color:var(--accent);font-size:.9rem;min-height:32px;displ
         nodes=(data.elements||[]).filter(function(e){return e.type==="node";});
         renderOSM(nodes,origin,rad);
         if(!nodes.length) return;
-        setStatus(nodes.length+" stații găsite. Caut liniile…");
 
         return fetchOverpass(queryRoutes(lat, lon, rad), 0, [], "Caut liniile")
           .then(function(d2){
@@ -307,7 +311,7 @@ summary{cursor:pointer;color:var(--accent);font-size:.9rem;min-height:32px;displ
           })
           .catch(function(e){
             if(my!==reqId) return;
-            statusEl.textContent = nodes.length + " stații găsite, dar liniile nu s-au încărcat (" + e.message + ").";
+            statusEl.textContent = nodes.length + " stații găsite. Liniile nu sunt disponibile acum (" + e.message + ").";
           });
       })
       .catch(function(e){
@@ -316,59 +320,56 @@ summary{cursor:pointer;color:var(--accent);font-size:.9rem;min-height:32px;displ
       });
   }
 
-  function loadRT(lat, lon, rad){
-    var origin = [lat, lon];
-    var stops = RT.stopList.map(function(s){
-      return {id:s.id, name:s.name, pos:s.pos, d:dist(origin, s.pos)};
-    }).filter(function(s){ return s.d <= rad; })
-      .sort(function(a, b){ return a.d - b.d; }).slice(0, 40);
-
-    stops.forEach(function(s){
-      var m = RT.stopRoutes[s.id] || {};
-      s.lines = Object.keys(m).map(function(rid){
-        var r = RT.routes[rid] || {ref:"?", mode:"bus"};
-        return {mode:r.mode, ref:r.ref, rid:rid, ends:m[rid]};
-      });
-      s.lines.sort(function(x, y){
-        if(x.mode !== y.mode) return MODE_ORDER[x.mode] - MODE_ORDER[y.mode];
-        return String(x.ref).localeCompare(String(y.ref), "ro", {numeric:true});
-      });
+  function renderOSM(els,origin,rad){
+    var nodes={}, rels=[];
+    els.forEach(function(e){
+      if(e.type==="node") nodes[e.id]=e;
+      else if(e.type==="relation" && e.tags) rels.push(e);
     });
 
-    renderStops(stops, rad, true);
-    RT.shown = stops;
-    refreshEta();
-    startTimer();
-  }
+    // index rute pe tip/ref
+    var allRoutes = rels.map(function(r){
+      var t=r.tags||{};
+      return {
+        mode: t.route || "bus",
+        ref: t.ref || t.name || "?",
+        to: t.to || "",
+        from: t.from || ""
+      };
+    });
 
-  function renderOSM(els,origin,rad){
-    var nodes={},byNode={};
-    els.forEach(function(e){if(e.type==="node") nodes[e.id]=e;});
-    els.forEach(function(e){
-      if(e.type!=="relation"||!e.tags) return;
-      (e.members||[]).forEach(function(m){
-        if(m.type!=="node"||!nodes[m.ref]) return;
-        (byNode[m.ref]=byNode[m.ref]||[]).push(e);
-      });
+    // dedup global pentru fallback (când nu putem asocia per stație)
+    var uniqGlobal = {};
+    allRoutes.forEach(function(r){
+      var k=r.mode+"|"+r.ref+"|"+(r.from||"")+"|"+(r.to||"");
+      uniqGlobal[k]=r;
+    });
+    var globalLines = Object.keys(uniqGlobal).map(function(k){
+      var r=uniqGlobal[k];
+      return {mode:r.mode, ref:r.ref, ends: ((r.from?r.from+" → ":"")+(r.to||"")) ? { [((r.from?r.from+" → ":"")+(r.to||""))]:1 } : {}};
     });
 
     var stops=Object.keys(nodes).map(function(id){
-      var n=nodes[id],rels=byNode[id]||[],groups={};
-      rels.forEach(function(r){
-        var t=r.tags||{}, ref=t.ref||t.name||"?", key=(t.route||"bus")+"|"+ref;
-        var g=groups[key]=groups[key]||{mode:(t.route||"bus"),ref:ref,ends:{}};
-        var to=t.to||(t.name&&t.name.indexOf("⇒")>-1?t.name.split("⇒").pop().trim():"")||(t.name&&t.name.indexOf("=>")>-1?t.name.split("=>").pop().trim():"");
-        var from=t.from||"";
-        g.ends[(from?from+" → ":"")+to]=1;
+      var n=nodes[id];
+
+      // Heuristic: dacă avem relații returnate, le atașăm stațiilor din zonă
+      // (mult mai util decât "nicio linie")
+      var lines = globalLines.map(function(g){
+        return {mode:g.mode, ref:g.ref, ends:g.ends};
       });
 
-      var lines=Object.keys(groups).map(function(k){return groups[k];});
       lines.sort(function(x,y){
         if(x.mode!==y.mode) return (MODE_ORDER[x.mode]||9)-(MODE_ORDER[y.mode]||9);
         return String(x.ref).localeCompare(String(y.ref),"ro",{numeric:true});
       });
 
-      return {id:id,name:(n.tags&&n.tags.name)||"Stație fără nume",pos:[n.lat,n.lon],d:dist(origin,[n.lat,n.lon]),lines:lines};
+      return {
+        id:id,
+        name:(n.tags&&n.tags.name)||"Stație fără nume",
+        pos:[n.lat,n.lon],
+        d:dist(origin,[n.lat,n.lon]),
+        lines:lines
+      };
     });
 
     stops.sort(function(a,b){return a.d-b.d;});
@@ -382,8 +383,7 @@ summary{cursor:pointer;color:var(--accent);font-size:.9rem;min-height:32px;displ
 
     stops.forEach(function(s){
       var m=L.circleMarker(s.pos,{radius:7,color:"#fff",weight:2,fillColor:"#c8362d",fillOpacity:1}).bindTooltip(s.name).addTo(layer);
-      m.on("click",function(){focusStop(s.id,true);});
-      markers[s.id]=m;
+      m.on("click",function(){focusStop(s.id,true);}); markers[s.id]=m;
 
       var li=document.createElement("li"); li.className="stop"; li.id="stop-"+s.id;
       var top=document.createElement("div"); top.className="top";
@@ -393,26 +393,22 @@ summary{cursor:pointer;color:var(--accent);font-size:.9rem;min-height:32px;displ
 
       if(!s.lines.length){
         var none=document.createElement("div"); none.className="none";
-        none.textContent=realtime?"Nicio linie asociată acestei stații.":"Nicio linie asociată acestei stații în datele OpenStreetMap.";
+        none.textContent=realtime?"Nicio linie asociată acestei stații.":"Nicio linie disponibilă în datele curente.";
         li.appendChild(none);
       }else if(realtime){
         s.lines.forEach(function(g){
           var row=document.createElement("div"); row.className="etarow";
-          var c=document.createElement("span"); c.className="chip "+(g.mode||"bus"); c.textContent=g.ref;
+          var c=document.createElement("span"); c.className="chip "+g.mode; c.textContent=g.ref;
           var what=document.createElement("span"); what.className="what";
-          what.textContent=(MODE_LABEL[g.mode]||"")+(Object.keys(g.ends).length?" · "+Object.keys(g.ends).join("; "):"");
+          what.textContent=(MODE_LABEL[g.mode]||"")+(Object.keys(g.ends||{}).length?" · "+Object.keys(g.ends).join("; "):"");
           var when=document.createElement("span"); when.className="when off";
           when.id="eta-"+s.id+"-"+g.rid; when.textContent="se încarcă…";
-          row.appendChild(c); row.appendChild(what); row.appendChild(when);
-          li.appendChild(row);
+          row.appendChild(c); row.appendChild(what); row.appendChild(when); li.appendChild(row);
         });
-      }else{
+      } else {
         var chips=document.createElement("div"); chips.className="chips";
         s.lines.forEach(function(g){
-          var c=document.createElement("span");
-          c.className="chip "+(g.mode||"bus");
-          c.textContent=g.ref;
-          c.title=MODE_LABEL[g.mode]||g.mode;
+          var c=document.createElement("span"); c.className="chip "+g.mode; c.textContent=g.ref; c.title=MODE_LABEL[g.mode]||g.mode;
           chips.appendChild(c);
         });
         li.appendChild(chips);
@@ -429,15 +425,10 @@ summary{cursor:pointer;color:var(--accent);font-size:.9rem;min-height:32px;displ
           row.appendChild(document.createTextNode(" "+(MODE_LABEL[g.mode]||"")+(ends?" · "+ends:"")));
           ul.appendChild(row);
         });
-        det.appendChild(ul);
-        li.appendChild(det);
+        det.appendChild(ul); li.appendChild(det);
       }
 
-      li.addEventListener("click",function(ev){
-        if(ev.target.closest("summary")) return;
-        focusStop(s.id,false);
-      });
-
+      li.addEventListener("click",function(ev){ if(ev.target.closest("summary")) return; focusStop(s.id,false); });
       listEl.appendChild(li);
     });
   }
@@ -453,14 +444,13 @@ summary{cursor:pointer;color:var(--accent);font-size:.9rem;min-height:32px;displ
     if(!navigator.geolocation){ setStatus("Browserul nu oferă locația. Atinge un punct pe hartă."); return; }
     if(location.protocol==="file:"){ setStatus("Locația nu merge pe fișier local. Publică pe https."); return; }
     setStatus("Aștept locația…");
-    navigator.geolocation.getCurrentPosition(function(p){
-      setPosition(p.coords.latitude,p.coords.longitude,true);
-    }, function(err){
-      var why=err.code===1?"Permisiunea pentru locație e refuzată în browser."
-              :err.code===3?"Locația a durat prea mult. Încearcă afară sau cu GPS pornit."
-              :"Locația nu e disponibilă.";
-      setStatus(why+" Atinge un punct pe hartă.");
-    }, {enableHighAccuracy:false, timeout:15000, maximumAge:60000});
+    navigator.geolocation.getCurrentPosition(function(p){ setPosition(p.coords.latitude,p.coords.longitude,true); },
+      function(err){
+        var why=err.code===1?"Permisiunea pentru locație e refuzată în browser."
+               :err.code===3?"Locația a durat prea mult. Încearcă afară sau cu GPS pornit."
+               :"Locația nu e disponibilă.";
+        setStatus(why+" Atinge un punct pe hartă.");
+      }, {enableHighAccuracy:false, timeout:15000, maximumAge:60000});
   });
 
   rtBtn.addEventListener("click",connect);
