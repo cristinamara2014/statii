@@ -64,7 +64,7 @@
     .chip{
       display:inline-flex;align-items:center;justify-content:center;
       min-height:38px;min-width:44px;padding:6px 12px;border-radius:9px;
-      color:#fff;font-size:.92rem;text-decoration:none;border:none;
+      color:#fff;font-weight:700;font-size:.92rem;text-decoration:none;border:none;
     }
     .chip.tram{background:var(--tram)}
     .chip.trolleybus{background:var(--troll)}
@@ -120,7 +120,6 @@
       const MODE_LABEL = { tram:"Tramvai", trolleybus:"Troleibuz", bus:"Autobuz" };
       const MODE_ORDER = { tram:0, trolleybus:1, bus:2 };
 
-      // endpoint principal + fallback
       const OVERPASS_LIST = [
         "https://overpass.kumi.systems/api/interpreter",
         "https://overpass-api.de/api/interpreter"
@@ -169,19 +168,20 @@
         );out body;`;
       }
 
-      function queryRoutes(lat,lon,rad){
-        const a=`(around:${rad},${lat},${lon})`;
+      function queryRoutes(lat, lon, rad){
+        const a = `(around:${rad},${lat},${lon})`;
         return `[out:json][timeout:60];
           (
             node${a}[public_transport=platform];
             node${a}[highway=bus_stop];
             node${a}[railway=tram_stop];
           )->.s;
+
           (
             rel(bn.s)[type=route][route~"^(bus|tram|trolleybus)$"];
-            rel(around.s:80)[type=route][route~"^(bus|tram|trolleybus)$"];
+            rel(around.s:200)[type=route][route~"^(bus|tram|trolleybus)$"];
           );
-          out body;`;
+          out tags;`;
       }
 
       async function fetchOverpass(q, idx=0, errs=[]){
@@ -276,7 +276,12 @@
           const directRels = rels.filter(r => (r.members||[]).some(mm => mm.type==="node" && String(mm.ref)===String(n.id)));
           let lines = groupRoutes(directRels);
           let approx = false;
-          if(!lines.length && nearLines.length){ lines = nearLines; approx = true; }
+
+          // fallback mai permisiv: arată liniile găsite în zonă
+          if (nearLines.length) {
+            lines = nearLines;
+            approx = true;
+          }
 
           return {
             id:String(n.id),
