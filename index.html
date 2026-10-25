@@ -66,18 +66,9 @@
 
   <script>
     const LEAFLET_SOURCES = [
-      {
-        css: "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css",
-        js:  "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-      },
-      {
-        css: "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css",
-        js:  "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"
-      },
-      {
-        css: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css",
-        js:  "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"
-      }
+      { css: "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css", js: "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" },
+      { css: "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css", js: "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js" },
+      { css: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css", js: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js" }
     ];
 
     function setStatus(msg, type){
@@ -89,7 +80,6 @@
 
     function loadCss(href){
       return new Promise((resolve,reject)=>{
-        if ([...document.styleSheets].some(s => s.href === href)) return resolve();
         const l = document.createElement("link");
         l.rel = "stylesheet";
         l.href = href;
@@ -101,9 +91,7 @@
 
     function loadJs(src){
       return new Promise((resolve,reject)=>{
-        const s = document.createElement("script");
-        s.src = src;
-        s.async = true;
+        const s = document.createElement("script true;
         s.onload = resolve;
         s.onerror = reject;
         document.head.appendChild(s);
@@ -189,11 +177,7 @@
       }
 
       function esc(s){
-        return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
-      }
-
-      function openLine(line, stopName, lat, lon){
-        window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}&travelmode=transit`, "_blank");
+        return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39},${lon}&travelmode=transit`, "_blank");
       }
 
       function openStop(lat, lon){
@@ -212,11 +196,13 @@
 
       async function fetchOverpass(query){
         const endpoints = [
+          "https://overpass.kumi.systems/api/interpreter",
+          "https://overpass.private.coffee/api/interpreter",
           "https://overpass-api.de/api/interpreter",
           "https://lz4.overpass-api.de/api/interpreter",
-          "https://z.overpass-api.de/api/interpreter",
-          "https://overpass.kumi.systems/api/interpreter"
+          "https://z.overpass-api.de/api/interpreter"
         ];
+
         const retryable = new Set([429,500,502,503,504]);
         const errors = [];
 
