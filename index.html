@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Stații în apropiere · Timișoara</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <style>
 :root{
   --bg:#f3f5f7; --surface:#ffffff; --ink:#14212b; --muted:#5d6b76; --line:#d9e0e5;
@@ -51,9 +51,225 @@ summary{cursor:pointer;color:var(--accent);font-size:.9rem;min-height:32px;displ
 .routes b{display:inline-block;min-width:2.2em}
 .none{color:var(--muted);font-size:.9rem;margin-top:6px}
 .leaflet-container{font:inherit}
-
 .rt{margin:0 16px 10px;border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:2px 14px}
 .rt summary{min-height:44px}
 .rt .row{display:grid;gap:8px;padding:4px 0 12px}
 .rt label{font-size:.88rem;color:var(--muted);display:grid;gap:4px}
-.rt input{font:inherit;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);padding:10px 12px;min-height
+.rt input{font:inherit;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);padding:10px 12px;min-height:44px;width:100%}
+.rt input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.rt small{color:var(--muted)}
+#rtstatus{font-size:.9rem;color:var(--muted);padding-bottom:10px}
+.badge{font-size:.8rem;color:var(--accent);margin-left:8px}
+.etarow{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;align-items:baseline;margin-top:8px}
+.etarow .what{color:var(--muted);font-size:.88rem;grid-column:2}
+.etarow .when{grid-column:2;font-weight:600;font-variant-numeric:tabular-nums}
+.etarow .when.off{font-weight:400;color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Stații în apropiere</h1>
+  <p>Timișoara · linii de tramvai, troleibuz și autobuz</p>
+</header>
+
+<div class="controls">
+  <button class="primary" id="locate">Folosește locația mea</button>
+  <select id="radius" aria-label="Rază de căutare">
+    <option value="300">300 m</option>
+    <option value="500" selected>500 m</option>
+    <option value="800">800 m</option>
+  </select>
+</div>
+
+<details class="rt" id="rtpanel">
+  <summary>Sosiri în timp real (Tranzy)<span class="badge" id="rtbadge"></span></summary>
+  <div class="row">
+    <label>Cheie API Tranzy
+      <input id="rtkey" type="password" autocomplete="off" spellcheck="false" placeholder="lipește cheia aici">
+    </label>
+    <label>ID agenție (opțional, se detectează automat)
+      <input id="rtagency" inputmode="numeric" autocomplete="off" placeholder="gol = caut Timișoara">
+    </label>
+    <button class="primary" id="rtconnect" type="button">Conectează</button>
+    <small>Cheia gratuită se cere de pe tranzy.ai. Rămâne doar în browserul tău.</small>
+    <div id="rtstatus" role="status"></div>
+  </div>
+</details>
+
+<div id="map" role="application" aria-label="Hartă cu stațiile din apropiere"></div>
+<div id="status">Apasă pe buton sau atinge un punct pe hartă.</div>
+<ul id="list"></ul>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function(){
+  var CENTER = [45.7537, 21.2257];
+  var TZ = "https://api.tranzy.ai/v1/opendata";
+  var MODE_LABEL = {tram:"Tramvai", trolleybus:"Troleibuz", bus:"Autobuz"};
+  var MODE_ORDER = {tram:0, trolleybus:1, bus:2};
+
+  var map = L.map("map").setView(CENTER, 14);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {maxZoom:19, attribution:"© OpenStreetMap"}).addTo(map);
+
+  var me=null, circle=null, layer=L.layerGroup().addTo(map), markers={};
+  var statusEl=document.getElementById("status"), listEl=document.getElementById("list"), radiusEl=document.getElementById("radius");
+  var last=null;
+
+  function setStatus(t){statusEl.textContent=t;}
+  function dist(a,b){
+    var R=6371000, r=Math.PI/180, dLat=(b[0]-a[0])*r, dLon=(b[1]-a[1])*r;
+    var s1=Math.sin(dLat/2), s2=Math.sin(dLon/2);
+    var x=s1*s1 + Math.cos(a[0]*r)*Math.cos(b[0]*r)*s2*s2;
+    return 2*R*Math.asin(Math.sqrt(x));
+  }
+
+  async function fetchOverpass(q){
+    const url = "https://overpass-api.de/api/interpreter?data=" + encodeURIComponent(q);
+    const r = await fetch(url);
+    if(!r.ok) throw new Error("HTTP " + r.status);
+    return await r.json();
+  }
+
+  function queryStops(lat,lon,rad){
+    var a="(around:"+rad+","+lat+","+lon+")";
+    return "[out:json][timeout:20];(node"+a+"[public_transport=platform];node"+a+"[highway=bus_stop];node"+a+"[railway=tram_stop];);out body;";
+  }
+  function queryRoutes(lat,lon,rad){
+    var a="(around:"+rad+","+lat+","+lon+")";
+    return "[out:json][timeout:25];(node"+a+"[public_transport=platform];node"+a+"[highway=bus_stop];node"+a+"[railway=tram_stop];)->.s;rel(bn.s)[type=route][route~\"^(bus|tram|trolleybus)$\"];out body;";
+  }
+
+  function setPosition(lat,lon,fly){
+    last=[lat,lon];
+    if(me) map.removeLayer(me); if(circle) map.removeLayer(circle);
+    var rad=parseInt(radiusEl.value,10);
+    me=L.circleMarker(last,{radius:8,color:"#fff",weight:3,fillColor:"#0b5c8a",fillOpacity:1}).addTo(map);
+    circle=L.circle(last,{radius:rad,color:"#0b5c8a",weight:1,fillOpacity:.06}).addTo(map);
+    if(fly) map.fitBounds(circle.getBounds(),{padding:[10,10]});
+    loadOSM(lat,lon,rad);
+  }
+
+  var reqId=0;
+  function loadOSM(lat,lon,rad){
+    var my=++reqId, origin=[lat,lon], nodes=[];
+    listEl.innerHTML=""; layer.clearLayers(); markers={};
+    setStatus("Caut stațiile…");
+    fetchOverpass(queryStops(lat,lon,rad)).then(function(data){
+      if(my!==reqId) return;
+      nodes=(data.elements||[]).filter(function(e){return e.type==="node";});
+      renderOSM(nodes,origin,rad);
+      if(!nodes.length) return;
+      setStatus(nodes.length+" stații găsite. Caut liniile…");
+      return fetchOverpass(queryRoutes(lat,lon,rad)).then(function(d2){
+        if(my!==reqId) return;
+        renderOSM(nodes.concat((d2.elements||[]).filter(function(e){return e.type==="relation";})),origin,rad);
+      }).catch(function(e){
+        if(my!==reqId) return;
+        statusEl.textContent=nodes.length+" stații găsite, dar liniile nu s-au încărcat ("+e.message+").";
+      });
+    }).catch(function(e){
+      if(my!==reqId) return;
+      setStatus("Nu am putut încărca stațiile. "+e.message);
+    });
+  }
+
+  function renderOSM(els,origin,rad){
+    var nodes={},byNode={};
+    els.forEach(function(e){if(e.type==="node") nodes[e.id]=e;});
+    els.forEach(function(e){
+      if(e.type!=="relation"||!e.tags) return;
+      (e.members||[]).forEach(function(m){
+        if(m.type!=="node"||!nodes[m.ref]) return;
+        (byNode[m.ref]=byNode[m.ref]||[]).push(e);
+      });
+    });
+
+    var MODE_LABEL = {tram:"Tramvai", trolleybus:"Troleibuz", bus:"Autobuz"};
+    var MODE_ORDER = {tram:0, trolleybus:1, bus:2};
+
+    var stops=Object.keys(nodes).map(function(id){
+      var n=nodes[id],rels=byNode[id]||[],groups={};
+      rels.forEach(function(r){
+        var t=r.tags||{}, ref=t.ref||t.name||"?", key=(t.route||"bus")+"|"+ref;
+        var g=groups[key]=groups[key]||{mode:(t.route||"bus"),ref:ref,ends:{}};
+        var to=t.to||""; var from=t.from||"";
+        g.ends[(from?from+" → ":"")+to]=1;
+      });
+
+      var lines=Object.keys(groups).map(function(k){return groups[k];});
+      lines.sort(function(x,y){
+        if(x.mode!==y.mode) return (MODE_ORDER[x.mode]||9)-(MODE_ORDER[y.mode]||9);
+        return String(x.ref).localeCompare(String(y.ref),"ro",{numeric:true});
+      });
+
+      return {
+        id:id,
+        name:(n.tags&&n.tags.name)||"Stație fără nume",
+        pos:[n.lat,n.lon],
+        d:dist(origin,[n.lat,n.lon]),
+        lines:lines
+      };
+    });
+
+    stops.sort(function(a,b){return a.d-b.d;});
+    renderStops(stops,rad);
+  }
+
+  function renderStops(stops,rad){
+    listEl.innerHTML=""; layer.clearLayers(); markers={};
+    if(!stops.length){ setStatus("Nicio stație în "+rad+" m. Mărește raza sau mută punctul pe hartă."); return; }
+    setStatus(stops.length+" stații în "+rad+" m, cele mai apropiate primele.");
+
+    stops.forEach(function(s){
+      var m=L.circleMarker(s.pos,{radius:7,color:"#fff",weight:2,fillColor:"#c8362d",fillOpacity:1}).bindTooltip(s.name).addTo(layer);
+      markers[s.id]=m;
+
+      var li=document.createElement("li"); li.className="stop"; li.id="stop-"+s.id;
+      var top=document.createElement("div"); top.className="top";
+      var nm=document.createElement("span"); nm.className="name"; nm.textContent=s.name;
+      var ds=document.createElement("span"); ds.className="dist"; ds.textContent=Math.round(s.d)+" m";
+      top.appendChild(nm); top.appendChild(ds); li.appendChild(top);
+
+      if(!s.lines.length){
+        var none=document.createElement("div"); none.className="none";
+        none.textContent="Nicio linie asociată acestei stații în datele OpenStreetMap.";
+        li.appendChild(none);
+      }else{
+        var chips=document.createElement("div"); chips.className="chips";
+        s.lines.forEach(function(g){
+          var c=document.createElement("span");
+          c.className="chip "+(g.mode||"bus");
+          c.textContent=g.ref;
+          chips.appendChild(c);
+        });
+        li.appendChild(chips);
+      }
+
+      li.addEventListener("click",function(){
+        if(markers[s.id]) map.panTo(markers[s.id].getLatLng());
+      });
+
+      listEl.appendChild(li);
+    });
+  }
+
+  document.getElementById("locate").addEventListener("click",function(){
+    if(!navigator.geolocation){ setStatus("Browserul nu oferă locația. Atinge un punct pe hartă."); return; }
+    if(location.protocol==="file:"){ setStatus("Locația nu merge pe fișier local. Publică pe https."); return; }
+    setStatus("Aștept locația…");
+    navigator.geolocation.getCurrentPosition(function(p){
+      setPosition(p.coords.latitude,p.coords.longitude,true);
+    }, function(err){
+      var why=err.code===1?"Permisiunea pentru locație e refuzată."
+              :err.code===3?"Locația a durat prea mult."
+              :"Locația nu e disponibilă.";
+      setStatus(why+" Atinge un punct pe hartă.");
+    }, {enableHighAccuracy:false, timeout:15000, maximumAge:60000});
+  });
+
+  map.on("click",function(e){ setPosition(e.latlng.lat,e.latlng.lng,false); });
+  radiusEl.addEventListener("change",function(){ if(last) setPosition(last[0],last[1],true); });
+})();
+</script>
+</body>
+</html>
