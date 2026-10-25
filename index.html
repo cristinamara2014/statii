@@ -165,16 +165,20 @@
     async function loadCityJson(cityName){
       if(!cityName) return null;
       const slug = slugCity(cityName);
-      const path = `./${slug}.json`;
-      try{
-        const r = await fetch(path, {cache:"no-store"});
-        if(!r.ok) return null;
-        const j = await r.json();
-        if(!Array.isArray(j)) return null;
-        return {city:cityName, slug, stations:j};
-      }catch(e){
-        return null;
+
+      // încearcă root, apoi /data
+      const paths = [`./${slug}.json`, `./data/${slug}.json`];
+
+      for (const path of paths){
+        try{
+          const r = await fetch(path, {cache:"no-store"});
+          if(!r.ok) continue;
+          const j = await r.json();
+          if(!Array.isArray(j)) continue;
+          return {city:cityName, slug, stations:j, path};
+        }catch(e){}
       }
+      return null;
     }
 
     (async function init(){
@@ -236,7 +240,7 @@
         const local = await loadCityJson(city);
 
         if(local){
-          sourceInfo = `fișier local: data/${local.slug}.json`;
+          sourceInfo = `fișier local: ${local.path.replace("./","")}`;
           await renderFromData(local.stations);
           return;
         }
@@ -289,4 +293,14 @@
       };
 
       radiusEl.onchange = () => setPoint(point[0],point[1],true);
-      map.on("click", e
+      map.on("click", e => setPoint(e.latlng.lat, e.latlng.lng, true));
+
+      // pornește din centru
+      setPoint(center[0], center[1], false);
+    })().catch(err=>{
+      console.error(err);
+      setStatus("Eroare la pornire: " + err.message);
+    });
+  </script>
+</body>
+</html>
