@@ -166,8 +166,8 @@
       if(!cityName) return null;
       const slug = slugCity(cityName);
 
-      // încearcă root, apoi /data
-      const paths = [`./${slug}.json`, `./${slug}.json`];
+      // încearcă root, apoi fallback-uri
+      const paths = [`./${slug}.json`, `./timisoara.json`, `./data/${slug}.json`];
 
       for (const path of paths){
         try{
@@ -214,14 +214,21 @@
 
         near.forEach(s=>{
           const nm = s.name || "Stație fără nume";
+          const lines = Array.isArray(s.lines) && s.lines.length ? s.lines.join(", ") : "—";
+
           L.circleMarker([s.lat,s.lon],{
-            radius:7,color:"#fff",weight:2,fillColor:"#c8362d",fillOpacity:1
-          }).bindTooltip(nm).addTo(layer);
+            radius:10,
+            color:"#111827",
+            weight:2,
+            fillColor:"#ef4444",
+            fillOpacity:1
+          }).bindTooltip(lines !== "—" ? `${nm} · ${lines}` : nm).addTo(layer);
 
           const li=document.createElement("li");
           li.innerHTML = `
             <div class="name">${nm}</div>
             <div class="meta">${Math.round(s.d)} m</div>
+            <div class="meta">Linii: ${lines}</div>
             <div class="city">${sourceInfo}</div>
           `;
           listEl.appendChild(li);
