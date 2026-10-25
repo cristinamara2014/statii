@@ -2,32 +2,81 @@
 <html lang="ro">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Stații apropiate · Timișoara</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Stații în apropiere · Timișoara</title>
   <link rel="icon" href="data:," />
   <style>
-    body{margin:0;font:16px system-ui;background:#f5f7fa;color:#1f2937}
-    header{padding:14px 16px}
-    h1{margin:0;font-size:1.1rem}
-    p{margin:.35rem 0 0;color:#6b7280}
-    #map{height:45vh;min-height:280px;margin:0 16px;border:1px solid #d1d5db;border-radius:12px;background:#e5e7eb}
-    .bar{padding:10px 16px;display:flex;gap:8px;flex-wrap:wrap}
-    button,select{padding:10px 12px;border-radius:10px;border:1px solid #d1d5db;background:#fff}
-    button{background:#0b5c8a;color:#fff;border-color:#0b5c8a}
-    #status{margin:0 16px 8px;padding:10px;border:1px solid #d1d5db;border-radius:10px;background:#fff;color:#6b7280}
-    ul{list-style:none;margin:0;padding:0 16px 20px;display:grid;gap:8px}
-    li{background:#fff;border:1px solid #d1d5db;border-radius:10px;padding:10px}
+    :root{
+      --bg:#f3f5f7; --surface:#fff; --ink:#14212b; --muted:#5d6b76; --line:#d9e0e5;
+      --accent:#0b5c8a; --tram:#c8362d; --troll:#1b6fb5; --bus:#2f7d4f;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;background:var(--bg);color:var(--ink);
+      font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+      padding-top:env(safe-area-inset-top,0);padding-bottom:env(safe-area-inset-bottom,0);
+    }
+    header{padding:16px 16px 8px}
+    h1{margin:0;font-size:1.2rem}
+    header p{margin:4px 0 0;color:var(--muted);font-size:.92rem}
+
+    .controls{display:flex;gap:8px;flex-wrap:wrap;padding:8px 16px 12px}
+    button,select,a.maplink{
+      font:inherit;border-radius:10px;border:1px solid var(--line);
+      background:var(--surface);color:var(--ink);padding:10px 14px;min-height:44px
+    }
+    button{cursor:pointer}
+    button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+    button.ghost{background:#fff;color:var(--accent);border-color:var(--accent)}
+
+    #map{
+      height:42vh;min-height:280px;margin:0 16px;border:1px solid var(--line);
+      border-radius:14px;background:#e9eef2
+    }
+    #status-wrap{padding:10px 16px 0}
+    #status{
+      padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--muted);font-size:.92rem
+    }
+    #status.ok{border-color:#b9dfc8;background:#f1fbf5;color:#245d3a}
+    #status.warn{border-color:#f0d8a8;background:#fff9ec;color:#8a5a00}
+    #status.err{border-color:#f1b8b8;background:#fff2f2;color:#8c1d1d}
+
+    #list{list-style:none;margin:0;padding:8px 16px 28px;display:grid;gap:10px;max-width:900px}
+    .stop{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+    .stop.active{border-color:var(--accent);box-shadow:0 0 0 2px rgba(11,92,138,.18)}
+    .top{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
+    .name{font-weight:650}
+    .dist{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+    .hint{color:var(--muted);font-size:.86rem;margin-top:8px}
+    .summary-lines{
+      margin-top:8px;padding:8px 10px;border:1px dashed var(--line);border-radius:8px;
+      font-size:.88rem;background:rgba(11,92,138,.05);display:none;white-space:pre-line
+    }
+
+    .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+    .chip{
+      display:inline-flex;align-items:center;justify-content:center;
+      min-height:36px;min-width:42px;padding:6px 12px;border-radius:9px;
+      color:#fff;font-weight:700;font-size:.9rem;text-decoration:none;border:none;cursor:pointer
+    }
+    .chip.tram{background:var(--tram)}
+    .chip.trolleybus{background:var(--troll)}
+    .chip.bus{background:var(--bus)}
+
+    .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+    a.maplink{text-decoration:none;color:var(--accent)}
   </style>
 </head>
 <body>
   <header>
-    <h1>Stații apropiate</h1>
-    <p>Timișoara · variantă stabilă pentru stații</p>
+    <h1>Stații în apropiere</h1>
+    <p>Timișoara · stații + linii; click pe linie = încearcă live, fallback Google Maps</p>
   </header>
 
-  <div class="bar">
-    <button id="locate" type="button">Locația mea</button>
-    <select id="radius">
+  <div class="controls">
+    <button class="primary" id="locate" type="button">Folosește locația mea</button>
+    <button class="ghost" id="retryLines" type="button">Reîncearcă linii</button>
+    <select id="radius" aria-label="Rază de căutare">
       <option value="300">300 m</option>
       <option value="500" selected>500 m</option>
       <option value="800">800 m</option>
@@ -36,63 +85,96 @@
   </div>
 
   <div id="map"></div>
-  <div id="status">Încarc Leaflet...</div>
+  <div id="status-wrap"><div id="status">Inițializare...</div></div>
   <ul id="list"></ul>
 
   <script>
-    const statusEl = document.getElementById("status");
-    const listEl = document.getElementById("list");
-    const radiusEl = document.getElementById("radius");
-    const locateBtn = document.getElementById("locate");
+    const LEAFLET_SOURCES = [
+      { css:"https://unpkg.com/leaflet@1.9.4/dist/leaflet.css", js:"https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" },
+      { css:"https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css", js:"https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js" },
+      { css:"https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css", js:"https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js" }
+    ];
 
-    function setStatus(t){ statusEl.textContent = t; }
-
-    function loadScript(src){
-      return new Promise((resolve,reject)=>{
-        const s=document.createElement("script");
-        s.src=src; s.async=true; s.onload=resolve; s.onerror=reject;
-        document.head.appendChild(s);
-      });
+    function setStatus(msg, type){
+      const el = document.getElementById("status");
+      el.textContent = msg;
+      el.classList.remove("ok","warn","err");
+      if(type) el.classList.add(type);
     }
+
     function loadCss(href){
       return new Promise((resolve,reject)=>{
-        const l=document.createElement("link");
-        l.rel="stylesheet"; l.href=href; l.onload=resolve; l.onerror=reject;
+        const l = document.createElement("link");
+        l.rel = "stylesheet";
+        l.href = href;
+        l.onload = resolve;
+        l.onerror = reject;
         document.head.appendChild(l);
       });
     }
 
-    async function loadLeaflet(){
-      const cdn = [
-        ["https://unpkg.com/leaflet@1.9.4/dist/leaflet.css","https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"],
-        ["https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css","https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"],
-        ["https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css","https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"]
-      ];
-      for (const [css,js] of cdn){
+    function loadJs(src){
+      return new Promise((resolve,reject)=>{
+        const s = document.createElement("script");
+        s.src = src;
+        s.async = true;
+        s.onload = resolve;
+        s.onerror = reject;
+        document.head.appendChild(s);
+      });
+    }
+
+    async function ensureLeaflet(){
+      for(const c of LEAFLET_SOURCES){
         try{
-          await loadCss(css);
-          await loadScript(js);
-          if (window.L) return true;
-        }catch(e){}
+          await loadCss(c.css);
+          await loadJs(c.js);
+          if(window.L) return true;
+        }catch(_){}
       }
       return false;
     }
 
-    function qStops(lat, lon, r){
-      const a = `(around:${r},${lat},${lon})`;
-      return `[out:json][timeout:60];
-      (
+    const sleep = ms => new Promise(r=>setTimeout(r,ms));
+
+    function dist(a,b){
+      const R=6371000, r=Math.PI/180;
+      const dLat=(b[0]-a[0])*r, dLon=(b[1]-a[1])*r;
+      const s1=Math.sin(dLat/2), s2=Math.sin(dLon/2);
+      const x=s1*s1 + Math.cos(a[0]*r)*Math.cos(b[0]*r)*s2*s2;
+      return 2*R*Math.asin(Math.sqrt(x));
+    }
+
+    function esc(s){
+      return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+    }
+
+    function qStops(lat, lon, rad){
+      const a = `(around:${rad},${lat},${lon})`;
+      return `[out:json][timeout:60];(
         node${a}[public_transport=platform];
         node${a}[highway=bus_stop];
         node${a}[railway=tram_stop];
-      );
-      out body;`;
+      );out body;`;
     }
 
-    function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+    function qRoutes(lat, lon, rad){
+      const a = `(around:${rad},${lat},${lon})`;
+      return `[out:json][timeout:60];
+        (
+          node${a}[public_transport=platform];
+          node${a}[highway=bus_stop];
+          node${a}[railway=tram_stop];
+        )->.s;
+        (
+          rel(bn.s)[type=route][route~"^(bus|tram|trolleybus)$"];
+          rel(around.s:220)[type=route][route~"^(bus|tram|trolleybus)$"];
+        );
+        out body;`;
+    }
 
-    async function overpass(query){
-      const eps = [
+    async function fetchOverpass(query){
+      const endpoints = [
         "https://overpass.kumi.systems/api/interpreter",
         "https://overpass.private.coffee/api/interpreter",
         "https://overpass-api.de/api/interpreter",
@@ -100,126 +182,456 @@
         "https://z.overpass-api.de/api/interpreter"
       ];
       const retryable = new Set([429,500,502,503,504]);
-
       const errors = [];
 
-      for (const ep of eps){
-        for (let i=0; i<3; i++){
+      for(const ep of endpoints){
+        for(let attempt=1; attempt<=3; attempt++){
           const ctrl = new AbortController();
-          const t = setTimeout(()=>ctrl.abort(), 30000);
-
+          const timer = setTimeout(()=>ctrl.abort(), 35000);
           try{
             const res = await fetch(ep + "?data=" + encodeURIComponent(query), {
-              signal: ctrl.signal,
-              headers: { "Accept":"application/json,text/plain;q=0.9,*/*;q=0.8" }
+              method:"GET",
+              signal:ctrl.signal,
+              headers:{ "Accept":"application/json,text/plain;q=0.9,*/*;q=0.8" }
             });
 
-            if (!res.ok){
-              if (retryable.has(res.status)) throw new Error("HTTP " + res.status + " retryable");
+            if(!res.ok){
+              if(retryable.has(res.status)) throw new Error("HTTP " + res.status + " retryable");
               throw new Error("HTTP " + res.status);
             }
 
             const text = await res.text();
             const json = JSON.parse(text);
-            if (!json || !Array.isArray(json.elements)) throw new Error("Răspuns JSON invalid");
-            clearTimeout(t);
+            if(!json || !Array.isArray(json.elements)) throw new Error("JSON missing elements[]");
             return json;
           }catch(e){
-            clearTimeout(t);
-            errors.push(`${new URL(ep).host} try ${i+1}: ${e.name==="AbortError"?"timeout":e.message}`);
-            await sleep(500 + i*700);
+            const msg = e && e.name==="AbortError" ? "timeout" : (e && e.message ? e.message : "network");
+            errors.push((new URL(ep).host) + " [" + attempt + "/3]: " + msg);
+            await sleep(Math.min(4000, 400*Math.pow(2, attempt-1)) + Math.floor(Math.random()*300));
+          }finally{
+            clearTimeout(timer);
           }
         }
       }
 
-      throw new Error("Overpass indisponibil temporar. " + errors.slice(-4).join(" | "));
+      throw new Error("Overpass unavailable: " + errors.join(" | "));
     }
 
-    (async function init(){
-      const ok = await loadLeaflet();
-      if(!ok){ setStatus("Nu pot încărca Leaflet."); return; }
+    function validLine(v){
+      const s = String(v || "").trim();
+      if(!s) return false;
+      const low = s.toLowerCase();
+      if(low==="yes" || low==="no" || low==="true" || low==="false" || low==="1" || low==="0" || low==="?") return false;
+      return /^[A-Za-z]?\d{1,3}[A-Za-z]?$|^[A-Za-z]{1,3}\d{1,3}$/.test(s);
+    }
 
-      const center = [45.7537, 21.2257];
-      const map = L.map("map").setView(center, 14);
-      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 19, attribution: "&copy; OpenStreetMap"
-      }).addTo(map);
+    function groupRoutes(rels, modeOrder){
+      const m = {};
+      rels.forEach(r=>{
+        const t = r.tags || {};
+        const mode = t.route || "bus";
+        const ref = String(t.ref || t.name || "").trim();
+        if(!validLine(ref)) return;
 
-      const layer = L.layerGroup().addTo(map);
-      let me = null, circle = null, point = center.slice();
+        const k = mode + "|" + ref.toUpperCase();
+        if(!m[k]) m[k] = { mode, ref, ends:{} };
 
-      function dist(a,b){
-        const R=6371000, p=Math.PI/180;
-        const dLat=(b[0]-a[0])*p, dLon=(b[1]-a[1])*p;
-        const x=Math.sin(dLat/2)**2 + Math.cos(a[0]*p)*Math.cos(b[0]*p)*Math.sin(dLon/2)**2;
-        return 2*R*Math.asin(Math.sqrt(x));
+        const dir = (t.from || t.to)
+          ? (String(t.from || "") + ((t.from && t.to) ? " -> " : "") + String(t.to || ""))
+          : "";
+        if(dir) m[k].ends[dir] = 1;
+      });
+
+      return Object.values(m).sort((a,b)=>{
+        if(a.mode!==b.mode) return (modeOrder[a.mode] ?? 9) - (modeOrder[b.mode] ?? 9);
+        return a.ref.localeCompare(b.ref,"ro",{numeric:true});
+      });
+    }
+
+    function linesFromTags(tags, modeOrder){
+      const out = [];
+      function add(mode, raw){
+        if(!raw) return;
+        String(raw).split(/[;,]/).map(x=>x.trim()).filter(Boolean).forEach(v=>{
+          if(validLine(v)) out.push({ mode, ref:v, ends:{} });
+        });
       }
 
-      async function loadStops(){
-        const r = parseInt(radiusEl.value,10);
-        setStatus("Caut stații...");
-        layer.clearLayers();
-        listEl.innerHTML = "";
+      add("bus", tags.bus);
+      add("tram", tags.tram);
+      add("trolleybus", tags.trolleybus);
+      add("bus", tags.lines);
+      add("bus", tags.route_ref);
+      add("bus", tags.ref);
 
-                 const data = await overpass(qStops(point[0], point[1], r));
-          const nodes = (data.elements||[]).filter(e=>e.type==="node");
+      const seen = {};
+      return out.filter(x=>{
+        const k = x.mode + "|" + String(x.ref).toUpperCase();
+        if(seen[k]) return false;
+        seen[k] = 1;
+        return true;
+      }).sort((a,b)=>{
+        if(a.mode !== b.mode) return (modeOrder[a.mode] ?? 9) - (modeOrder[b.mode] ?? 9);
+        return String(a.ref).localeCompare(String(b.ref), "ro", { numeric:true });
+      });
+    }
 
-          if(!nodes.length){
-            setStatus("Nu am găsit stații în raza selectată.");
-            return;
-          }
+    // Încearcă endpoint live local (dacă există). Dacă nu, fallback la Google Maps.
+    async function tryShowLiveVehicleOnMap(lineRef, stopName, lat, lon, map, liveLayer){
+      const candidates = [
+        `./live/${encodeURIComponent(lineRef)}.json`,
+        `./data/live/${encodeURIComponent(lineRef)}.json`
+      ];
 
-          nodes.sort((a,b)=>dist(point,[a.lat,a.lon]) - dist(point,[b.lat,b.lon]));
+      for(const u of candidates){
+        try{
+          const r = await fetch(u, { cache:"no-store" });
+          if(!r.ok) continue;
+          const json = await r.json();
 
-          nodes.forEach(n=>{
-            const name = (n.tags && n.tags.name) ? n.tags.name : "Stație fără nume";
-            const d = Math.round(dist(point,[n.lat,n.lon]));
+          // format acceptat:
+          // { vehicles:[ {lat:45..., lon:21..., label:"..."}, ... ] }
+          if(!json || !Array.isArray(json.vehicles) || !json.vehicles.length) continue;
 
-            L.circleMarker([n.lat,n.lon],{
-              radius:7,color:"#fff",weight:2,fillColor:"#c8362d",fillOpacity:1
-            }).bindTooltip(name).addTo(layer);
+          liveLayer.clearLayers();
 
-            const li=document.createElement("li");
-            li.textContent = `${name} — ${d} m`;
-            listEl.appendChild(li);
+          json.vehicles.forEach(v=>{
+            if(typeof v.lat!=="number" || typeof v.lon!=="number") return;
+            const mk = L.circleMarker([v.lat, v.lon], {
+              radius:7, color:"#111", weight:1, fillColor:"#ffbf00", fillOpacity:1
+            }).addTo(liveLayer);
+            mk.bindPopup(`<b>Linia ${esc(lineRef)}</b><br>${esc(v.label || "Vehicul")}`);
           });
 
-          setStatus(`Găsite ${nodes.length} stații în ${r} m.`);
-        }catch(e){
-          setStatus("Eroare: " + e.message);
+          const first = json.vehicles.find(v=>typeof v.lat==="number" && typeof v.lon==="number");
+          if(first) map.setView([first.lat, first.lon], 15);
+
+          setStatus(`Live: ${json.vehicles.length} vehicule pe linia ${lineRef}.`, "ok");
+          return true;
+        }catch(_){}
+      }
+
+      // fallback dacă nu avem feed live local
+      const q = encodeURIComponent(lineRef + " " + stopName + " Timisoara");
+      window.open(`https://www.google.com/maps/search/?api=1&query=${q}`, "_blank");
+      setStatus(`Nu există feed live local pentru linia ${lineRef}. Am deschis Google Maps.`, "warn");
+      return false;
+    }
+
+    (async function(){
+      const ok = await ensureLeaflet();
+      if(!ok){
+        setStatus("Leaflet nu s-a putut încărca din CDN-uri.", "err");
+        return;
+      }
+
+      const statusEl = document.getElementById("status");
+      const listEl = document.getElementById("list");
+      const radiusEl = document.getElementById("radius");
+      const locateBtn = document.getElementById("locate");
+      const retryLinesBtn = document.getElementById("retryLines");
+      const mapEl = document.getElementById("map");
+
+      function setS(msg, type){
+        statusEl.textContent = msg;
+        statusEl.classList.remove("ok","warn","err");
+        if(type) statusEl.classList.add(type);
+      }
+
+      window.addEventListener("error", (e) => setS("Eroare JS: " + (e.message || "necunoscută"), "err"));
+      window.addEventListener("unhandledrejection", (e) => {
+        const m = e && e.reason && e.reason.message ? e.reason.message : String((e && e.reason) || "promise reject");
+        setS("Eroare async: " + m, "err");
+      });
+
+      if(!mapEl){
+        setS("Container #map lipsește", "err");
+        return;
+      }
+
+      const CENTER = [45.7537, 21.2257];
+      const MODE_LABEL = { bus:"Autobuz", tram:"Tramvai", trolleybus:"Troleibuz" };
+      const MODE_ORDER = { tram:0, trolleybus:1, bus:2 };
+
+      let map;
+      try{
+        map = L.map("map").setView(CENTER, 14);
+      }catch(e){
+        setS("Map initialization failed: " + e.message, "err");
+        return;
+      }
+
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom:19, attribution:"&copy; OpenStreetMap contributors"
+      }).addTo(map);
+
+      const stopsLayer = L.layerGroup().addTo(map);
+      const liveLayer  = L.layerGroup().addTo(map);
+
+      let meMarker = null;
+      let areaCircle = null;
+      let markers = {};
+      let lastPoint = null;
+      let requestId = 0;
+
+      function summary(lines){
+        const by={bus:[],tram:[],trolleybus:[]};
+        (lines||[]).forEach(l=>{ if(by[l.mode]) by[l.mode].push(String(l.ref)); });
+        const uniqSort = arr => Array.from(new Set(arr)).sort((x,y)=>x.localeCompare(y,"ro",{numeric:true}));
+        const b=uniqSort(by.bus), t=uniqSort(by.tram), tb=uniqSort(by.trolleybus);
+        return [
+          "Autobuze: " + (b.length ? b.join(", ") : "-"),
+          "Tramvaie: " + (t.length ? t.join(", ") : "-"),
+          "Troleibuze: " + (tb.length ? tb.join(", ") : "-")
+        ].join("\n");
+      }
+
+      function openStop(lat, lon){
+        const q = encodeURIComponent(lat + "," + lon);
+        window.open("https://www.google.com/maps/search/?api=1&query=" + q, "_blank");
+      }
+
+      function focusStop(id, scroll){
+        document.querySelectorAll(".stop.active").forEach(x=>x.classList.remove("active"));
+        document.querySelectorAll(".summary-lines").forEach(x=>x.style.display="none");
+
+        const li = document.getElementById("stop-"+id);
+        if(li){
+          li.classList.add("active");
+          const sm = li.querySelector(".summary-lines");
+          if(sm) sm.style.display = "block";
+          if(scroll) li.scrollIntoView({behavior:"smooth", block:"center"});
+        }
+
+        const mk = markers[id];
+        if(mk){
+          mk.openTooltip();
+          if(mk.getPopup()) mk.openPopup();
+          if(!scroll) map.panTo(mk.getLatLng());
         }
       }
 
-      function setPoint(lat,lon,fit){
-        point=[lat,lon];
-        const r = parseInt(radiusEl.value,10);
+      function render(nodes, rels, origin, rad){
+        const nearLines = groupRoutes(rels, MODE_ORDER);
 
-        if(me) map.removeLayer(me);
-        if(circle) map.removeLayer(circle);
+        const stops = nodes.map(n=>{
+          const tags = n.tags || {};
+          const direct = rels.filter(r => (r.members || []).some(mm => mm.type==="node" && String(mm.ref)===String(n.id)));
 
-        me = L.circleMarker(point,{radius:8,color:"#fff",weight:3,fillColor:"#0b5c8a",fillOpacity:1}).addTo(map);
-        circle = L.circle(point,{radius:r,color:"#0b5c8a",weight:1,fillOpacity:0.07}).addTo(map);
+          let lines = groupRoutes(direct, MODE_ORDER);
+          let approx = false;
 
-        if(fit) map.fitBounds(circle.getBounds(), {padding:[10,10]});
-        loadStops();
+          if(!lines.length && nearLines.length){ lines = nearLines; approx = true; }
+          if(!lines.length){
+            const f = linesFromTags(tags, MODE_ORDER);
+            if(f.length){ lines = f; approx = true; }
+          }
+
+          return {
+            id: String(n.id),
+            name: tags.name || "Stație fără nume",
+            pos: [n.lat, n.lon],
+            d: dist(origin,[n.lat,n.lon]),
+            lines: lines,
+            approx: approx
+          };
+        }).sort((a,b)=>a.d-b.d);
+
+        listEl.innerHTML = "";
+        stopsLayer.clearLayers();
+        markers = {};
+
+        if(!stops.length){
+          setS("Nicio stație în " + rad + " m.", "warn");
+          return;
+        }
+
+        setS(stops.length + " stații în " + rad + " m.", "ok");
+
+        stops.forEach(s=>{
+          const marker = L.circleMarker(s.pos,{
+            radius:7,color:"#fff",weight:2,fillColor:"#c8362d",fillOpacity:1
+          }).bindTooltip(s.name).addTo(stopsLayer);
+
+          const popupHtml = `
+            <div style="min-width:220px">
+              <b>${esc(s.name)}</b><br>
+              <small style="opacity:.8">${Math.round(s.d)} m</small>
+              <hr style="border:none;border-top:1px solid #ddd;margin:8px 0">
+              <div>${esc(summary(s.lines)).replace(/\n/g,"<br>")}</div>
+            </div>
+          `;
+          marker.bindPopup(popupHtml);
+          marker.on("click", ()=>{ focusStop(s.id,true); marker.openPopup(); });
+          markers[s.id] = marker;
+
+          const li = document.createElement("li");
+          li.className = "stop";
+          li.id = "stop-" + s.id;
+
+          const top = document.createElement("div");
+          top.className = "top";
+          top.innerHTML = `<span class="name"></span><span class="dist">${Math.round(s.d)} m</span>`;
+          top.querySelector(".name").textContent = s.name;
+          li.appendChild(top);
+
+          if(s.approx){
+            const h = document.createElement("div");
+            h.className = "hint";
+            h.textContent = "Linii estimate din datele disponibile.";
+            li.appendChild(h);
+          }
+
+          const sm = document.createElement("div");
+          sm.className = "summary-lines";
+          sm.textContent = summary(s.lines);
+          li.appendChild(sm);
+
+          if(s.lines.length){
+            const chips = document.createElement("div");
+            chips.className = "chips";
+
+            s.lines.forEach(g=>{
+              const a = document.createElement("a");
+              a.href = "#";
+              a.className = "chip " + g.mode;
+              a.textContent = g.ref;
+              a.title = (MODE_LABEL[g.mode] || "Linie") + " " + g.ref;
+              a.addEventListener("click", async (ev)=>{
+                ev.preventDefault();
+                setS("Caut live pentru linia " + g.ref + "...", "warn");
+                await tryShowLiveVehicleOnMap(g.ref, s.name, s.pos[0], s.pos[1], map, liveLayer);
+              });
+              chips.appendChild(a);
+            });
+
+            li.appendChild(chips);
+          }else{
+            const h = document.createElement("div");
+            h.className = "hint";
+            h.textContent = "Nicio linie disponibilă în OSM pentru această stație.";
+            li.appendChild(h);
+          }
+
+          const actions = document.createElement("div");
+          actions.className = "actions";
+
+          const open = document.createElement("a");
+          open.href = "#";
+          open.className = "maplink";
+          open.textContent = "📍 Stația în Google Maps";
+          open.addEventListener("click", ev=>{
+            ev.preventDefault();
+            openStop(s.pos[0], s.pos[1]);
+          });
+          actions.appendChild(open);
+
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.textContent = "Arată pe hartă";
+          btn.addEventListener("click", ()=>focusStop(s.id,false));
+          actions.appendChild(btn);
+
+          li.appendChild(actions);
+
+          li.addEventListener("click", ev=>{
+            if(ev.target.closest("a,button")) return;
+            focusStop(s.id,false);
+          });
+
+          listEl.appendChild(li);
+        });
       }
 
-      locateBtn.onclick = () => {
-        if(!navigator.geolocation){ setStatus("Geolocația nu e disponibilă."); return; }
-        if(!window.isSecureContext){ setStatus("Geolocația cere HTTPS."); return; }
+      async function load(lat, lon, rad, onlyLinesRetry){
+        const my = ++requestId;
 
-        setStatus("Cer locația...");
+        if(!onlyLinesRetry){
+          listEl.innerHTML = "";
+          stopsLayer.clearLayers();
+          liveLayer.clearLayers();
+          markers = {};
+        }
+
+        try{
+          setS("Caut stațiile...", "warn");
+          const sData = await fetchOverpass(qStops(lat,lon,rad));
+          if(my !== requestId) return;
+
+          const nodes = (sData.elements || []).filter(e=>e.type==="node");
+          render(nodes, [], [lat,lon], rad);
+          if(!nodes.length) return;
+
+          setS("Caut liniile...", "warn");
+          try{
+            const rData = await fetchOverpass(qRoutes(lat,lon,rad));
+            if(my !== requestId) return;
+            const rels = (rData.elements || []).filter(e=>e.type==="relation");
+            render(nodes, rels, [lat,lon], rad);
+            setS(nodes.length + " stații în " + rad + " m. Linii încărcate.", "ok");
+          }catch(_){
+            if(my !== requestId) return;
+            setS(nodes.length + " stații în " + rad + " m. Liniile nu sunt disponibile acum (Overpass).", "warn");
+          }
+        }catch(e){
+          if(my !== requestId) return;
+          setS("Eroare Overpass: " + (e.message || e), "err");
+        }
+      }
+
+      function setPoint(lat, lon, fit){
+        lastPoint = [lat, lon];
+
+        if(meMarker) map.removeLayer(meMarker);
+        if(areaCircle) map.removeLayer(areaCircle);
+
+        const rad = parseInt(radiusEl.value, 10);
+
+        meMarker = L.circleMarker(lastPoint,{
+          radius:8,color:"#fff",weight:3,fillColor:"#0b5c8a",fillOpacity:1
+        }).addTo(map);
+
+        areaCircle = L.circle(lastPoint,{
+          radius:rad,color:"#0b5c8a",weight:1,fillOpacity:0.06
+        }).addTo(map);
+
+        if(fit) map.fitBounds(areaCircle.getBounds(), {padding:[10,10]});
+        load(lat, lon, rad, false);
+      }
+
+      locateBtn.addEventListener("click", ()=>{
+        if(!navigator.geolocation){ setS("Geolocația nu este disponibilă.", "err"); return; }
+        if(!window.isSecureContext){ setS("Geolocația necesită HTTPS.", "err"); return; }
+
+        setS("Aștept locația...", "warn");
         navigator.geolocation.getCurrentPosition(
-          p => setPoint(p.coords.latitude,p.coords.longitude,true),
-          _ => setStatus("Nu pot lua locația. Apasă pe hartă manual.")
+          p => setPoint(p.coords.latitude, p.coords.longitude, true),
+          err => {
+            const msg = err.code===1 ? "Permisiune locație refuzată."
+                      : err.code===3 ? "Timeout locație."
+                      : "Locația nu este disponibilă.";
+            setS(msg + " Apasă pe hartă manual.", "warn");
+          },
+          { enableHighAccuracy:true, timeout:20000, maximumAge:60000 }
         );
-      };
+      });
 
-      radiusEl.onchange = () => setPoint(point[0],point[1],true);
-      map.on("click", e => setPoint(e.latlng.lat,e.latlng.lng,false));
+      retryLinesBtn.addEventListener("click", ()=>{
+        if(!lastPoint){
+          setS("Alege mai întâi un punct pe hartă.", "warn");
+          return;
+        }
+        const rad = parseInt(radiusEl.value, 10);
+        load(lastPoint[0], lastPoint[1], rad, true);
+      });
 
-      setStatus("Harta e gata.");
-      setPoint(center[0],center[1],false);
+      map.on("click", e => setPoint(e.latlng.lat, e.latlng.lng, false));
+      radiusEl.addEventListener("change", ()=>{
+        if(lastPoint) setPoint(lastPoint[0], lastPoint[1], true);
+      });
+
+      setS("Harta inițializată.", "ok");
+      setPoint(CENTER[0], CENTER[1], false);
     })();
   </script>
 </body>
