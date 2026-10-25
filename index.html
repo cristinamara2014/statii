@@ -22,7 +22,7 @@
 <body>
   <header>
     <h1>Stații apropiate</h1>
-    <p>Variantă stabilă: afișează stațiile din jur.</p>
+    <p>Timișoara · variantă stabilă pentru stații</p>
   </header>
 
   <div class="bar">
@@ -31,6 +31,7 @@
       <option value="300">300 m</option>
       <option value="500" selected>500 m</option>
       <option value="800">800 m</option>
+      <option value="1200">1200 m</option>
     </select>
   </div>
 
@@ -79,7 +80,7 @@
 
     function qStops(lat, lon, r){
       const a = `(around:${r},${lat},${lon})`;
-      return `[out:json][timeout:40];
+      return `[out:json][timeout:60];
       (
         node${a}[public_transport=platform];
         node${a}[highway=bus_stop];
@@ -88,21 +89,50 @@
       out body;`;
     }
 
+    function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+
     async function overpass(query){
       const eps = [
         "https://overpass.kumi.systems/api/interpreter",
+        "https://overpass.private.coffee/api/interpreter",
         "https://overpass-api.de/api/interpreter",
-        "https://lz4.overpass-api.de/api/interpreter"
+        "https://lz4.overpass-api.de/api/interpreter",
+        "https://z.overpass-api.de/api/interpreter"
       ];
+      const retryable = new Set([429,500,502,503,504]);
+
+      const errors = [];
+
       for (const ep of eps){
-        try{
-          const res = await fetch(ep + "?data=" + encodeURIComponent(query));
-          if(!res.ok) throw new Error("HTTP "+res.status);
-          const json = await res.json();
-          return json;
-        }catch(e){}
+        for (let i=0; i<3; i++){
+          const ctrl = new AbortController();
+          const t = setTimeout(()=>ctrl.abort(), 30000);
+
+          try{
+            const res = await fetch(ep + "?data=" + encodeURIComponent(query), {
+              signal: ctrl.signal,
+              headers: { "Accept":"application/json,text/plain;q=0.9,*/*;q=0.8" }
+            });
+
+            if (!res.ok){
+              if (retryable.has(res.status)) throw new Error("HTTP " + res.status + " retryable");
+              throw new Error("HTTP " + res.status);
+            }
+
+            const text = await res.text();
+            const json = JSON.parse(text);
+            if (!json || !Array.isArray(json.elements)) throw new Error("Răspuns JSON invalid");
+            clearTimeout(t);
+            return json;
+          }catch(e){
+            clearTimeout(t);
+            errors.push(`${new URL(ep).host} try ${i+1}: ${e.name==="AbortError"?"timeout":e.message}`);
+            await sleep(500 + i*700);
+          }
+        }
       }
-      throw new Error("Overpass indisponibil");
+
+      throw new Error("Overpass indisponibil temporar. " + errors.slice(-4).join(" | "));
     }
 
     (async function init(){
@@ -131,10 +161,13 @@
         layer.clearLayers();
         listEl.innerHTML = "";
 
-        try{
-          const data = await overpass(qStops(point[0], point[1], r));
+                 const data = await overpass(qStops(point[0], point[1], r));
           const nodes = (data.elements||[]).filter(e=>e.type==="node");
-          if(!nodes.length){ setStatus("Nu am găsit stații."); return; }
+
+          if(!nodes.length){
+            setStatus("Nu am găsit stații în raza selectată.");
+            return;
+          }
 
           nodes.sort((a,b)=>dist(point,[a.lat,a.lon]) - dist(point,[b.lat,b.lon]));
 
@@ -166,16 +199,19 @@
 
         me = L.circleMarker(point,{radius:8,color:"#fff",weight:3,fillColor:"#0b5c8a",fillOpacity:1}).addTo(map);
         circle = L.circle(point,{radius:r,color:"#0b5c8a",weight:1,fillOpacity:0.07}).addTo(map);
-        if(fit) map.fitBounds(circle.getBounds(), {padding:[10,10]});
 
+        if(fit) map.fitBounds(circle.getBounds(), {padding:[10,10]});
         loadStops();
       }
 
       locateBtn.onclick = () => {
         if(!navigator.geolocation){ setStatus("Geolocația nu e disponibilă."); return; }
+        if(!window.isSecureContext){ setStatus("Geolocația cere HTTPS."); return; }
+
+        setStatus("Cer locația...");
         navigator.geolocation.getCurrentPosition(
           p => setPoint(p.coords.latitude,p.coords.longitude,true),
-          _ => setStatus("Nu pot lua locația. Apasă pe hartă.")
+          _ => setStatus("Nu pot lua locația. Apasă pe hartă manual.")
         );
       };
 
