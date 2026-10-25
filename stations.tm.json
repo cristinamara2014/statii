@@ -1,0 +1,12 @@
+[
+  {"name":"Piața 700","lat":45.7579,"lon":21.2232,"lines":["E2","16","18"]},
+  {"name":"Catedrala Mitropolitană","lat":45.7489,"lon":21.2255,"lines":["E1","E8","33"]},
+  {"name":"Piața Libertății","lat":45.7551,"lon":21.2287,"lines":["E2","E7","M11"]},
+  {"name":"Piața Unirii","lat":45.7595,"lon":21.2292,"lines":["E2","E7","M14"]},
+  {"name":"Gara de Nord","lat":45.7497,"lon":21.2087,"lines":["4","7","33","40"]},
+  {"name":"Complex Studențesc","lat":45.7448,"lon":21.2356,"lines":["16","19","22"]},
+  {"name":"Prefectura","lat":45.7542,"lon":21.2321,"lines":["E8","M11","M22"]},
+  {"name":"Iulius Town","lat":45.7664,"lon":21.2369,"lines":["40","46","E3"]},
+  {"name":"Badea Cârțan","lat":45.7610,"lon":21.2483,"lines":["4","E3","M14"]},
+  {"name":"Spitalul Județean","lat":45.7367,"lon":21.2447,"lines":["16","17","M22"]}
+]
