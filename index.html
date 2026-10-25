@@ -1,12 +1,225 @@
-[
-  {"name":"Piața 700","lat":45.7579,"lon":21.2232,"lines":["E2","16","18"]},
-  {"name":"Catedrala Mitropolitană","lat":45.7489,"lon":21.2255,"lines":["E1","E8","33"]},
-  {"name":"Piața Libertății","lat":45.7551,"lon":21.2287,"lines":["E2","E7","M11"]},
-  {"name":"Piața Unirii","lat":45.7595,"lon":21.2292,"lines":["E2","E7","M14"]},
-  {"name":"Gara de Nord","lat":45.7497,"lon":21.2087,"lines":["4","7","33","40"]},
-  {"name":"Complex Studențesc","lat":45.7448,"lon":21.2356,"lines":["16","19","22"]},
-  {"name":"Prefectura","lat":45.7542,"lon":21.2321,"lines":["E8","M11","M22"]},
-  {"name":"Iulius Town","lat":45.7664,"lon":21.2369,"lines":["40","46","E3"]},
-  {"name":"Badea Cârțan","lat":45.7610,"lon":21.2483,"lines":["4","E3","M14"]},
-  {"name":"Spitalul Județean","lat":45.7367,"lon":21.2447,"lines":["16","17","M22"]}
-]
+<!doctype html>
+<html lang="ro">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Stații apropiate · Timișoara</title>
+  <link rel="icon" href="data:," />
+  <style>
+    body{margin:0;font:16px system-ui;background:#f5f7fa;color:#1f2937}
+    header{padding:14px 16px}
+    h1{margin:0;font-size:1.1rem}
+    p{margin:.35rem 0 0;color:#6b7280}
+    #map{height:45vh;min-height:280px;margin:0 16px;border:1px solid #d1d5db;border-radius:12px;background:#e5e7eb}
+    .bar{padding:10px 16px;display:flex;gap:8px;flex-wrap:wrap}
+    button,select{padding:10px 12px;border-radius:10px;border:1px solid #d1d5db;background:#fff}
+    button{background:#0b5c8a;color:#fff;border-color:#0b5c8a}
+    #status{margin:0 16px 8px;padding:10px;border:1px solid #d1d5db;border-radius:10px;background:#fff;color:#6b7280}
+    ul{list-style:none;margin:0;padding:0 16px 20px;display:grid;gap:8px}
+    li{background:#fff;border:1px solid #d1d5db;border-radius:10px;padding:10px}
+    .name{font-weight:600}
+    .meta{color:#6b7280;font-size:.92rem}
+    .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+    .chip{
+      display:inline-flex;align-items:center;justify-content:center;
+      min-height:32px;min-width:40px;padding:4px 10px;border-radius:999px;
+      background:#0b5c8a;color:#fff;text-decoration:none;font-weight:600;font-size:.85rem
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Stații apropiate</h1>
+    <p>Date locale din <code>stations.tm.json</code> (fără Overpass).</p>
+  </header>
+
+  <div class="bar">
+    <button id="locate" type="button">Locația mea</button>
+    <select id="radius">
+      <option value="300">300 m</option>
+      <option value="500" selected>500 m</option>
+      <option value="800">800 m</option>
+      <option value="1200">1200 m</option>
+    </select>
+  </div>
+
+  <div id="map"></div>
+  <div id="status">Încarc...</div>
+  <ul id="list"></ul>
+
+  <script>
+    const statusEl = document.getElementById("status");
+    const listEl = document.getElementById("list");
+    const radiusEl = document.getElementById("radius");
+    const locateBtn = document.getElementById("locate");
+
+    function setStatus(t){ statusEl.textContent = t; }
+
+    function loadScript(src){
+      return new Promise((resolve,reject)=>{
+        const s=document.createElement("script");
+        s.src=src; s.async=true; s.onload=resolve; s.onerror=reject;
+        document.head.appendChild(s);
+      });
+    }
+    function loadCss(href){
+      return new Promise((resolve,reject)=>{
+        const l=document.createElement("link");
+        l.rel="stylesheet"; l.href=href; l.onload=resolve; l.onerror=reject;
+        document.head.appendChild(l);
+      });
+    }
+
+    async function loadLeaflet(){
+      const cdn = [
+        ["https://unpkg.com/leaflet@1.9.4/dist/leaflet.css","https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"],
+        ["https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css","https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"],
+        ["https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css","https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"]
+      ];
+      for (const [css,js] of cdn){
+        try{
+          await loadCss(css);
+          await loadScript(js);
+          if(window.L) return true;
+        }catch(e){}
+      }
+      return false;
+    }
+
+    function dist(a,b){
+      const R=6371000, p=Math.PI/180;
+      const dLat=(b[0]-a[0])*p, dLon=(b[1]-a[1])*p;
+      const x=Math.sin(dLat/2)**2 + Math.cos(a[0]*p)*Math.cos(b[0]*p)*Math.sin(dLon/2)**2;
+      return 2*R*Math.asin(Math.sqrt(x));
+    }
+
+    function gmapsLineUrl(line, stopName){
+      const q = encodeURIComponent(`linia ${line} ${stopName} Timisoara`);
+      return `https://www.google.com/maps/search/?api=1&query=${q}`;
+    }
+
+    (async function init(){
+      setStatus("Încarc Leaflet...");
+      const ok = await loadLeaflet();
+      if(!ok){ setStatus("Nu pot încărca Leaflet."); return; }
+
+      setStatus("Încarc stațiile din stations.tm.json...");
+      let stations = [];
+      try{
+        const r = await fetch("./stations.tm.json", {cache:"no-store"});
+        if(!r.ok) throw new Error("Nu găsesc stations.tm.json");
+        stations = await r.json();
+        if(!Array.isArray(stations)) throw new Error("JSON invalid (trebuie array)");
+      }catch(e){
+        setStatus("Eroare date: " + e.message);
+        return;
+      }
+
+      const center = [45.7537, 21.2257];
+      const map = L.map("map").setView(center, 14);
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19, attribution: "&copy; OpenStreetMap"
+      }).addTo(map);
+
+      const stopsLayer = L.layerGroup().addTo(map);
+      let me = null, circle = null, point = center.slice();
+
+      function render(){
+        const rad = parseInt(radiusEl.value,10);
+        stopsLayer.clearLayers();
+        listEl.innerHTML = "";
+
+        const near = stations
+          .filter(s => typeof s.lat==="number" && typeof s.lon==="number")
+          .map(s => ({...s, d: dist(point,[s.lat,s.lon])}))
+          .filter(s => s.d <= rad)
+          .sort((a,b)=>a.d-b.d);
+
+        if(!near.length){
+          setStatus("Nicio stație în raza selectată.");
+          return;
+        }
+
+        near.forEach(s=>{
+          L.circleMarker([s.lat,s.lon],{
+            radius:7,color:"#fff",weight:2,fillColor:"#c8362d",fillOpacity:1
+          }).bindTooltip(s.name || "Stație").addTo(stopsLayer);
+
+          const li=document.createElement("li");
+
+          const name=document.createElement("div");
+          name.className="name";
+          name.textContent=s.name || "Stație fără nume";
+
+          const meta=document.createElement("div");
+          meta.className="meta";
+          meta.textContent=Math.round(s.d) + " m";
+
+          li.appendChild(name);
+          li.appendChild(meta);
+
+          const chips=document.createElement("div");
+          chips.className="chips";
+
+          const lines = Array.isArray(s.lines) ? s.lines : [];
+          if(lines.length){
+            lines.forEach(line=>{
+              const a=document.createElement("a");
+              a.className="chip";
+              a.textContent=String(line);
+              a.href=gmapsLineUrl(line, s.name || "statie");
+              a.target="_blank";
+              a.rel="noopener";
+              a.title="Deschide linia " + line + " în Google Maps";
+              chips.appendChild(a);
+            });
+          }else{
+            const no=document.createElement("span");
+            no.className="meta";
+            no.textContent="Fără linii definite";
+            chips.appendChild(no);
+          }
+
+          li.appendChild(chips);
+          listEl.appendChild(li);
+        });
+
+        setStatus(`Găsite ${near.length} stații în ${rad} m.`);
+      }
+
+      function setPoint(lat,lon,fit){
+        point=[lat,lon];
+        const rad = parseInt(radiusEl.value,10);
+
+        if(me) map.removeLayer(me);
+        if(circle) map.removeLayer(circle);
+
+        me = L.circleMarker(point,{
+          radius:8,color:"#fff",weight:3,fillColor:"#0b5c8a",fillOpacity:1
+        }).addTo(map);
+
+        circle = L.circle(point,{
+          radius:rad,color:"#0b5c8a",weight:1,fillOpacity:0.08
+        }).addTo(map);
+
+        if(fit) map.fitBounds(circle.getBounds(), {padding:[10,10]});
+        render();
+      }
+
+      locateBtn.onclick = () => {
+        if(!navigator.geolocation){ setStatus("Geolocația nu e disponibilă."); return; }
+        navigator.geolocation.getCurrentPosition(
+          p => setPoint(p.coords.latitude,p.coords.longitude,true),
+          _ => setStatus("Nu pot lua locația. Apasă pe hartă manual.")
+        );
+      };
+
+      radiusEl.onchange = ()=> setPoint(point[0],point[1],true);
+      map.on("click", e => setPoint(e.latlng.lat,e.latlng.lng,false));
+
+      setStatus("Gata.");
+      setPoint(center[0],center[1],false);
+    })();
+  </script>
+</body>
+</html>
