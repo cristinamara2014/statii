@@ -2,122 +2,76 @@
 <html lang="ro">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Stații în apropiere · Timișoara</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Stații · Debug Safe</title>
   <link rel="icon" href="data:," />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <style>
-    :root{
-      --bg:#f3f5f7; --surface:#fff; --ink:#14212b; --muted:#5d6b76; --line:#d9e0e5;
-      --accent:#0b5c8a; --tram:#c8362d; --troll:#1b6fb5; --bus:#2f7d4f;
-    }
-    *{box-sizing:border-box}
-    body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-    header{padding:16px 16px 8px}
-    h1{margin:0;font-size:1.2rem}
-    header p{margin:4px 0 0;color:var(--muted);font-size:.92rem}
-    .controls{display:flex;gap:8px;flex-wrap:wrap;padding:8px 16px 12px}
-    button,select,a.maplink{
-      font:inherit;border-radius:10px;border:1px solid var(--line);
-      background:var(--surface);color:var(--ink);padding:10px 14px;min-height:44px
-    }
-    button{cursor:pointer}
-    button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
-    #map{height:42vh;min-height:280px;margin:0 16px;border:1px solid var(--line);border-radius:14px;background:#e9eef2}
-    #status{padding:12px 16px 4px;color:var(--muted);font-size:.92rem}
-    #list{list-style:none;margin:0;padding:4px 16px 28px;display:grid;gap:10px;max-width:820px}
-    .stop{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
-    .stop.active{border-color:var(--accent);box-shadow:0 0 0 2px rgba(11,92,138,.18)}
-    .top{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
-    .name{font-weight:650}
-    .dist{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
-    .hint{color:var(--muted);font-size:.86rem;margin-top:8px}
-    .summary-lines{
-      margin-top:8px;padding:8px 10px;border:1px dashed var(--line);
-      border-radius:8px;font-size:.88rem;background:rgba(11,92,138,.05);
-      display:none;white-space:pre-line
-    }
-    .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
-    .chip{
-      display:inline-flex;align-items:center;justify-content:center;min-height:36px;min-width:42px;
-      padding:6px 12px;border-radius:9px;color:#fff;font-weight:700;font-size:.9rem;text-decoration:none
-    }
-    .chip.tram{background:var(--tram)}
-    .chip.trolleybus{background:var(--troll)}
-    .chip.bus{background:var(--bus)}
-    .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
-    a.maplink{text-decoration:none;color:var(--accent)}
+    html,body{margin:0;height:100%;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+    #map{height:70vh;min-height:320px;margin:12px;border:1px solid #ccc;border-radius:10px}
+    #status{margin:12px;padding:10px;border-radius:8px;background:#f5f7fa}
+    #log{margin:12px;padding:10px;border-radius:8px;background:#111;color:#0f0;font:12px/1.4 ui-monospace,monospace;white-space:pre-wrap}
+    button{margin:12px;padding:10px 14px}
   </style>
 </head>
 <body>
-  <header>
-    <h1>Stații în apropiere</h1>
-    <p>Timișoara - apăsare pe stație pentru linii</p>
-  </header>
-
-  <div class="controls">
-    <button class="primary" id="locate" type="button">Folosește locația mea</button>
-    <select id="radius" aria-label="Rază de căutare">
-      <option value="300">300 m</option>
-      <option value="500" selected>500 m</option>
-      <option value="800">800 m</option>
-    </select>
-  </div>
-
+  <button id="retry">Reinitializează harta</button>
+  <div id="status">Pornire...</div>
   <div id="map"></div>
-  <div id="status">Initializare...</div>
-  <ul id="list"></ul>
+  <div id="log"></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-  (function(){
-    const statusEl = document.getElementById("status");
-    const listEl = document.getElementById("list");
-    const radiusEl = document.getElementById("radius");
-    const locateBtn = document.getElementById("locate");
+    (function(){
+      const statusEl = document.getElementById('status');
+      const logEl = document.getElementById('log');
+      const mapEl = document.getElementById('map');
+      let map = null;
 
-    const setStatus = t => statusEl.textContent = t;
+      function log(msg){
+        logEl.textContent += msg + "\n";
+        console.log(msg);
+      }
+      function setStatus(msg){ statusEl.textContent = msg; log("STATUS: " + msg); }
 
-    if (!window.L) { setStatus("Eroare: Leaflet nu s-a încărcat (window.L lipsă)."); return; }
+      function initMap(){
+        try{
+          setStatus("Inițializare...");
+          if(!window.L) throw new Error("window.L lipsește (Leaflet JS nu s-a încărcat)");
+          log("Leaflet version: " + L.version);
 
-    const CENTER = [45.7537, 21.2257];
-    const MODE_LABEL = { bus:"Autobuz", tram:"Tramvai", trolleybus:"Troleibuz" };
-    const MODE_ORDER = { tram:0, trolleybus:1, bus:2 };
-    const BAD = new Set(["yes","no","true","false","1","0","?"]);
+          if(!mapEl) throw new Error("#map nu există în DOM");
+          const h = mapEl.getBoundingClientRect().height;
+          log("#map height: " + h);
+          if(h < 120) throw new Error("#map are înălțime prea mică");
 
-    const OVERPASS = [
-      "https://overpass.kumi.systems/api/interpreter",
-      "https://overpass-api.de/api/interpreter"
-    ];
+          if(map){ map.remove(); map = null; log("Map vechi eliminat."); }
 
-    let map;
-    try{
-      map = L.map("map").setView(CENTER, 14);
-    }catch(e){
-      setStatus("Eroare L.map(): " + e.message);
-      return;
-    }
+          map = L.map('map', { zoomControl:true }).setView([45.7537,21.2257], 13);
+          L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; OpenStreetMap contributors'
+          }).addTo(map);
 
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom:19, attribution:"&copy; OpenStreetMap contributors"
-    }).addTo(map);
+          L.marker([45.7537,21.2257]).addTo(map).bindPopup('Timișoara').openPopup();
 
-    setTimeout(()=>map.invalidateSize(), 0);
-    setTimeout(()=>map.invalidateSize(), 250);
+          setTimeout(() => map.invalidateSize(), 0);
+          setTimeout(() => map.invalidateSize(), 300);
 
-    let meMarker=null, areaCircle=null;
-    const stopsLayer = L.layerGroup().addTo(map);
-    let markers = {};
-    let lastPoint = null;
-    let requestId = 0;
+          setStatus("Hartă OK");
+        }catch(err){
+          setStatus("Map initialization script failed to run");
+          log("ERROR: " + (err && err.message ? err.message : err));
+        }
+      }
 
-    function dist(a,b){
-      const R=6371000, r=Math.PI/180;
-      const dLat=(b[0]-a[0])*r, dLon=(b[1]-a[1])*r;
-      const s1=Math.sin(dLat/2), s2=Math.sin(dLon/2);
-      const x=s1*s1 + Math.cos(a[0]*r)*Math.cos(b[0]*r)*s2*s2;
-      return 2*R*Math.asin(Math.sqrt(x));
-    }
+      // log global errors
+      window.addEventListener('error', e => log("window.error: " + e.message));
+      window.addEventListener('unhandledrejection', e => log("unhandledrejection: " + (e.reason && e.reason.message ? e.reason.message : e.reason)));
 
-    function esc(s){
-      return String(s).
+      document.getElementById('retry').addEventListener('click', initMap);
+      initMap();
+    })();
+  </script>
+</body>
+</html>
