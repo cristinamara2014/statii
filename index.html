@@ -6,7 +6,8 @@
   <title>Stații în apropiere · Timișoara</title>
   <link rel="icon" href="data:," />
 
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <!-- Leaflet local -->
+  <link rel="stylesheet" href="./assets/leaflet/leaflet.css" />
 
   <style>
     :root{
@@ -48,8 +49,7 @@
 
     #list{list-style:none;margin:0;padding:8px 16px 28px;display:grid;gap:10px;max-width:820px}
 
-    .stop{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
-    .stop.active{border-color:var(--accent);box-shadow:0 0 0 2px rgba(11,92,138,.18)}
+    .stop{background:var(--surface);border:box-shadow:0 0 0 2px rgba(11,92,138,.18)}
     .top{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
     .name{font-weight:650}
     .dist{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -96,7 +96,10 @@
     <div id="status">Inițializare...</div>
   </div>
 
-  <ul id="=""></script>
+  <ul id="list"></ul>
+
+  <!-- Leaflet local -->
+  <script src="./assets/leaflet/leaflet.js"></script>
   <script>
   (function () {
     const statusEl = document.getElementById("status");
@@ -121,7 +124,7 @@
     });
 
     try {
-      if (!window.L) throw new Error("Leaflet JS nu s-a încărcat (window.L lipsește)");
+      if (!window.L) throw new Error("Leaflet JS local nu s-a încărcat (window.L lipsește)");
       if (!mapEl) throw new Error("Container #map lipsește");
       if (mapEl.getBoundingClientRect().height < 120) throw new Error("Container #map are înălțime invalidă");
     } catch (e) {
@@ -481,6 +484,7 @@
 
     async function load(lat, lon, rad, onlyLinesRetry){
       const my = ++requestId;
+
       if (!onlyLinesRetry) {
         listEl.innerHTML = "";
         stopsLayer.clearLayers();
