@@ -561,7 +561,10 @@
 
         meMarker = L.circleMarker(lastPoint,{
           radius:8,color:"#fff",weight:3,fillColor:"#0b5c8a",fillOpacity:1
-        }).addTo(map0b5c8a",weight:1,fillOpacity:.06
+        }).addTo(map);
+
+        areaCircle = L.circle(lastPoint,{
+          radius:rad,color:"#0b5c8a",weight:1,fillOpacity:.06
         }).addTo(map);
 
         if(fit) map.fitBounds(areaCircle.getBounds(), {padding:[10,10]});
