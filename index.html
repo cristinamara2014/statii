@@ -60,6 +60,18 @@
     .dist{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
     .hint{color:var(--muted);font-size:.86rem;margin-top:8px}
 
+    .summary-lines{
+      margin-top:8px;
+      padding:8px 10px;
+      border:1px dashed var(--line);
+      border-radius:8px;
+      font-size:.88rem;
+      color:var(--ink);
+      background:rgba(11,92,138,.05);
+      display:none;
+      white-space:pre-line;
+    }
+
     .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
     .chip{
       display:inline-flex;align-items:center;justify-content:center;
@@ -85,7 +97,7 @@
 <body>
   <header>
     <h1>Stații în apropiere</h1>
-    <p>Timișoara · apasă pe linie pentru Google Maps</p>
+    <p>Timișoara · apasă pe stație ca să vezi liniile care trec</p>
   </header>
 
   <div class="controls">
@@ -147,6 +159,12 @@
         const s1=Math.sin(dLat/2), s2=Math.sin(dLon/2);
         const x=s1*s1 + Math.cos(a[0]*r)*Math.cos(b[0]*r)*s2*s2;
         return 2*R*Math.asin(Math.sqrt(x));
+      }
+
+      function escapeHtml(str){
+        return String(str).replace(/[&<>"']/g, ch => ({
+          "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+        }[ch]));
       }
 
       function openLineInGoogleMaps(line, stopName){
@@ -306,6 +324,28 @@
         });
       }
 
+      function summarizeByMode(lines){
+        const by = { bus:[], tram:[], trolleybus:[] };
+        (lines || []).forEach(l => {
+          if(!by[l.mode]) by[l.mode] = [];
+          by[l.mode].push(String(l.ref));
+        });
+
+        function uniqSorted(arr){
+          return Array.from(new Set(arr)).sort((a,b)=>a.localeCompare(b,"ro",{numeric:true}));
+        }
+
+        const buses = uniqSorted(by.bus);
+        const trams = uniqSorted(by.tram);
+        const trolls = uniqSorted(by.trolleybus);
+
+        let parts = [];
+        parts.push("Autobuze: " + (buses.length ? buses.join(", ") : "—"));
+        parts.push("Tramvaie: " + (trams.length ? trams.join(", ") : "—"));
+        parts.push("Troleibuze: " + (trolls.length ? trolls.join(", ") : "—"));
+        return parts.join("\n");
+      }
+
       function render(nodes, rels, origin, rad){
         const nearLines = groupRoutes(rels);
 
@@ -319,13 +359,11 @@
           let lines = groupRoutes(directRels);
           let approx = false;
 
-          // fallback 1: din relațiile din zonă
           if (!lines.length && nearLines.length) {
             lines = nearLines;
             approx = true;
           }
 
-          // fallback 2: din tagurile stației
           if (!lines.length) {
             const fromTags = linesFromStopTags(tags);
             if (fromTags.length) {
@@ -353,11 +391,28 @@
           return;
         }
 
-        setStatus(`${stops.length} stații în ${rad} m. Apasă pe o linie pentru Google Maps.`);
+        setStatus(`${stops.length} stații în ${rad} m. Apasă pe stație pentru popup cu linii.`);
 
         stops.forEach(s=>{
-          const m=L.circleMarker(s.pos,{radius:7,color:"#fff",weight:2,fillColor:"#c8362d",fillOpacity:1}).bindTooltip(s.name).addTo(layer);
-          m.on("click",()=>focusStop(s.id,true));
+          const m = L.circleMarker(s.pos,{
+            radius:7,color:"#fff",weight:2,fillColor:"#c8362d",fillOpacity:1
+          }).bindTooltip(s.name).addTo(layer);
+
+          const popupHtml = `
+            <div style="min-width:220px">
+              <b>${escapeHtml(s.name)}</b><br>
+              <small style="opacity:.8">${Math.round(s.d)} m</small>
+              <hr style="border:none;border-top:1px solid #ddd;margin:8px 0">
+              <div>${escapeHtml(summarizeByMode(s.lines)).replace(/\n/g,"<br>")}</div>
+            </div>
+          `;
+
+          m.bindPopup(popupHtml);
+          m.on("click", () => {
+            focusStop(s.id, true);
+            m.openPopup();
+          });
+
           markers[s.id]=m;
 
           const li=document.createElement("li");
@@ -376,6 +431,12 @@
             h.textContent="Linii estimate din datele disponibile în zonă.";
             li.appendChild(h);
           }
+
+          const sum=document.createElement("div");
+          sum.className="summary-lines";
+          sum.id="summary-"+s.id;
+          sum.textContent = summarizeByMode(s.lines);
+          li.appendChild(sum);
 
           if(!s.lines.length){
             const none=document.createElement("div");
@@ -451,13 +512,19 @@
 
       function focusStop(id,scroll){
         document.querySelectorAll(".stop.active").forEach(x=>x.classList.remove("active"));
+        document.querySelectorAll(".summary-lines").forEach(x=>x.style.display="none");
+
         const li=document.getElementById("stop-"+id);
         if(li){
           li.classList.add("active");
+          const sm = li.querySelector(".summary-lines");
+          if(sm) sm.style.display = "block";
           if(scroll) li.scrollIntoView({behavior:"smooth",block:"center"});
         }
+
         if(markers[id]){
           markers[id].openTooltip();
+          if(markers[id].getPopup()) markers[id].openPopup();
           if(!scroll) map.panTo(markers[id].getLatLng());
         }
       }
