@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Stații apropiate · Timișoara</title>
+  <title>Stații apropiate · Multi-oraș</title>
   <link rel="icon" href="data:," />
   <style>
     body{margin:0;font:16px system-ui;background:#f5f7fa;color:#1f2937}
     header{padding:14px 16px}
-    h1{margin:0;font-size:1.1rem}
+    h1{margin:0;font-size:1.08rem}
     p{margin:.35rem 0 0;color:#6b7280}
     #map{height:45vh;min-height:280px;margin:0 16px;border:1px solid #d1d5db;border-radius:12px;background:#e5e7eb}
     .bar{padding:10px 16px;display:flex;gap:8px;flex-wrap:wrap}
@@ -19,18 +19,13 @@
     li{background:#fff;border:1px solid #d1d5db;border-radius:10px;padding:10px}
     .name{font-weight:600}
     .meta{color:#6b7280;font-size:.92rem}
-    .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
-    .chip{
-      display:inline-flex;align-items:center;justify-content:center;
-      min-height:32px;min-width:40px;padding:4px 10px;border-radius:999px;
-      background:#0b5c8a;color:#fff;text-decoration:none;font-weight:600;font-size:.85rem
-    }
+    .city{font-size:.9rem;color:#0b5c8a}
   </style>
 </head>
 <body>
   <header>
     <h1>Stații apropiate</h1>
-    <p>Date locale din <code>stations.tm.json</code> (fără Overpass).</p>
+    <p>Multi-oraș: JSON local per oraș + fallback Overpass</p>
   </header>
 
   <div class="bar">
@@ -93,9 +88,93 @@
       return 2*R*Math.asin(Math.sqrt(x));
     }
 
-    function gmapsLineUrl(line, stopName){
-      const q = encodeURIComponent(`linia ${line} ${stopName} Timisoara`);
-      return `https://www.google.com/maps/search/?api=1&query=${q}`;
+    function slugCity(name){
+      return String(name || "")
+        .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g,"-")
+        .replace(/^-+|-+$/g,"");
+    }
+
+    async function detectCity(lat, lon){
+      try{
+        const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&accept-language=ro`;
+        const r = await fetch(url, {headers:{'Accept':'application/json'}});
+        if(!r.ok) throw new Error("reverse geocode fail");
+        const j = await r.json();
+        const a = j.address || {};
+        return a.city || a.town || a.municipality || a.village || a.county || null;
+      }catch(e){
+        return null;
+      }
+    }
+
+    function qStops(lat, lon, r){
+      const a = `(around:${r},${lat},${lon})`;
+      return `[out:json][timeout:60];
+      (
+        node${a}[public_transport=platform];
+        node${a}[highway=bus_stop];
+        node${a}[railway=tram_stop];
+      );
+      out body;`;
+    }
+
+    function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+
+    async function overpass(query){
+      const eps = [
+        "https://overpass.kumi.systems/api/interpreter",
+        "https://overpass.private.coffee/api/interpreter",
+        "https://overpass-api.de/api/interpreter",
+        "https://lz4.overpass-api.de/api/interpreter",
+        "https://z.overpass-api.de/api/interpreter"
+      ];
+      const retryable = new Set([429,500,502,503,504]);
+
+      for (const ep of eps){
+        for (let i=0; i<3; i++){
+          const ctrl = new AbortController();
+          const t = setTimeout(()=>ctrl.abort(), 30000);
+
+          try{
+            const res = await fetch(ep + "?data=" + encodeURIComponent(query), {
+              signal: ctrl.signal,
+              headers: { "Accept":"application/json,text/plain;q=0.9,*/*;q=0.8" }
+            });
+
+            if (!res.ok){
+              if (retryable.has(res.status)) throw new Error("HTTP " + res.status + " retry");
+              throw new Error("HTTP " + res.status);
+            }
+
+            const text = await res.text();
+            const json = JSON.parse(text);
+            if (!json || !Array.isArray(json.elements)) throw new Error("JSON invalid");
+            clearTimeout(t);
+            return json;
+          }catch(e){
+            clearTimeout(t);
+            await sleep(500 + i*700);
+          }
+        }
+      }
+      throw new Error("Overpass indisponibil");
+    }
+
+    async function loadCityJson(cityName){
+      if(!cityName) return null;
+      const slug = slugCity(cityName);
+      const path = `./data/${slug}.json`;
+      try{
+        const r = await fetch(path, {cache:"no-store"});
+        if(!r.ok) return null;
+        const j = await r.json();
+        if(!Array.isArray(j)) return null;
+        return {city:cityName, slug, stations:j};
+      }catch(e){
+        return null;
+      }
     }
 
     (async function init(){
@@ -103,93 +182,85 @@
       const ok = await loadLeaflet();
       if(!ok){ setStatus("Nu pot încărca Leaflet."); return; }
 
-      setStatus("Încarc stațiile din stations.tm.json...");
-      let stations = [];
-      try{
-        const r = await fetch("./stations.tm.json", {cache:"no-store"});
-        if(!r.ok) throw new Error("Nu găsesc stations.tm.json");
-        stations = await r.json();
-        if(!Array.isArray(stations)) throw new Error("JSON invalid (trebuie array)");
-      }catch(e){
-        setStatus("Eroare date: " + e.message);
-        return;
-      }
-
       const center = [45.7537, 21.2257];
       const map = L.map("map").setView(center, 14);
       L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
         maxZoom: 19, attribution: "&copy; OpenStreetMap"
       }).addTo(map);
 
-      const stopsLayer = L.layerGroup().addTo(map);
+      const layer = L.layerGroup().addTo(map);
       let me = null, circle = null, point = center.slice();
+      let sourceInfo = "fallback Overpass";
 
-      function render(){
-        const rad = parseInt(radiusEl.value,10);
-        stopsLayer.clearLayers();
+      async function renderFromData(stations){
+        const r = parseInt(radiusEl.value,10);
+        layer.clearLayers();
         listEl.innerHTML = "";
 
         const near = stations
           .filter(s => typeof s.lat==="number" && typeof s.lon==="number")
           .map(s => ({...s, d: dist(point,[s.lat,s.lon])}))
-          .filter(s => s.d <= rad)
+          .filter(s => s.d <= r)
           .sort((a,b)=>a.d-b.d);
 
         if(!near.length){
-          setStatus("Nicio stație în raza selectată.");
+          setStatus(`Nicio stație în ${r} m (${sourceInfo}).`);
           return;
         }
 
         near.forEach(s=>{
+          const nm = s.name || "Stație fără nume";
           L.circleMarker([s.lat,s.lon],{
             radius:7,color:"#fff",weight:2,fillColor:"#c8362d",fillOpacity:1
-          }).bindTooltip(s.name || "Stație").addTo(stopsLayer);
+          }).bindTooltip(nm).addTo(layer);
 
           const li=document.createElement("li");
-
-          const name=document.createElement("div");
-          name.className="name";
-          name.textContent=s.name || "Stație fără nume";
-
-          const meta=document.createElement("div");
-          meta.className="meta";
-          meta.textContent=Math.round(s.d) + " m";
-
-          li.appendChild(name);
-          li.appendChild(meta);
-
-          const chips=document.createElement("div");
-          chips.className="chips";
-
-          const lines = Array.isArray(s.lines) ? s.lines : [];
-          if(lines.length){
-            lines.forEach(line=>{
-              const a=document.createElement("a");
-              a.className="chip";
-              a.textContent=String(line);
-              a.href=gmapsLineUrl(line, s.name || "statie");
-              a.target="_blank";
-              a.rel="noopener";
-              a.title="Deschide linia " + line + " în Google Maps";
-              chips.appendChild(a);
-            });
-          }else{
-            const no=document.createElement("span");
-            no.className="meta";
-            no.textContent="Fără linii definite";
-            chips.appendChild(no);
-          }
-
-          li.appendChild(chips);
+          li.innerHTML = `
+            <div class="name">${nm}</div>
+            <div class="meta">${Math.round(s.d)} m</div>
+            <div class="city">${sourceInfo}</div>
+          `;
           listEl.appendChild(li);
         });
 
-        setStatus(`Găsite ${near.length} stații în ${rad} m.`);
+        setStatus(`Găsite ${near.length} stații în ${r} m (${sourceInfo}).`);
+      }
+
+      async function loadStopsDynamic(){
+        const r = parseInt(radiusEl.value,10);
+        setStatus("Caut orașul și stațiile...");
+        layer.clearLayers();
+        listEl.innerHTML = "";
+
+        const city = await detectCity(point[0], point[1]);
+        const local = await loadCityJson(city);
+
+        if(local){
+          sourceInfo = `fișier local: data/${local.slug}.json`;
+          await renderFromData(local.stations);
+          return;
+        }
+
+        // fallback Overpass dacă nu există JSON local pentru oraș
+        sourceInfo = city ? `Overpass (${city})` : "Overpass";
+        setStatus(`Nu există JSON local pentru ${city || "oraș"}. Folosesc Overpass...`);
+        try{
+          const data = await overpass(qStops(point[0], point[1], r));
+          const nodes = (data.elements||[]).filter(e=>e.type==="node");
+          const stations = nodes.map(n=>({
+            name: (n.tags && n.tags.name) ? n.tags.name : "Stație fără nume",
+            lat: n.lat,
+            lon: n.lon
+          }));
+          await renderFromData(stations);
+        }catch(e){
+          setStatus("Eroare: " + e.message);
+        }
       }
 
       function setPoint(lat,lon,fit){
         point=[lat,lon];
-        const rad = parseInt(radiusEl.value,10);
+        const r = parseInt(radiusEl.value,10);
 
         if(me) map.removeLayer(me);
         if(circle) map.removeLayer(circle);
@@ -199,27 +270,23 @@
         }).addTo(map);
 
         circle = L.circle(point,{
-          radius:rad,color:"#0b5c8a",weight:1,fillOpacity:0.08
+          radius:r,color:"#0b5c8a",weight:1,fillOpacity:0.07
         }).addTo(map);
 
         if(fit) map.fitBounds(circle.getBounds(), {padding:[10,10]});
-        render();
+        loadStopsDynamic();
       }
 
       locateBtn.onclick = () => {
         if(!navigator.geolocation){ setStatus("Geolocația nu e disponibilă."); return; }
+        if(!window.isSecureContext){ setStatus("Geolocația cere HTTPS."); return; }
+
+        setStatus("Cer locația...");
         navigator.geolocation.getCurrentPosition(
           p => setPoint(p.coords.latitude,p.coords.longitude,true),
           _ => setStatus("Nu pot lua locația. Apasă pe hartă manual.")
         );
       };
 
-      radiusEl.onchange = ()=> setPoint(point[0],point[1],true);
-      map.on("click", e => setPoint(e.latlng.lat,e.latlng.lng,false));
-
-      setStatus("Gata.");
-      setPoint(center[0],center[1],false);
-    })();
-  </script>
-</body>
-</html>
+      radiusEl.onchange = () => setPoint(point[0],point[1],true);
+      map.on("click", e
