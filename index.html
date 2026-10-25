@@ -258,6 +258,7 @@
           const t=r.tags||{};
           const mode=t.route||"bus";
           const ref=t.ref||t.name||"?";
+          if(!ref || ref === "?") return;
           const k=mode+"|"+ref;
           if(!m[k]) m[k]={mode,ref,ends:{}};
           const dir = (t.from||t.to) ? `${t.from||""}${(t.from&&t.to)?" → ":""}${t.to||""}` : "";
@@ -269,10 +270,48 @@
         });
       }
 
+      // fallback: extrage linii din tagurile stației
+      function linesFromStopTags(tags){
+        tags = tags || {};
+        const out = [];
+
+        function pushVals(mode, raw){
+          if(!raw) return;
+          String(raw)
+            .split(/[;,]/)
+            .map(x => x.trim())
+            .filter(Boolean)
+            .forEach(v => {
+              if (/^[A-Za-z0-9]{1,6}$/.test(v)) {
+                out.push({ mode, ref:v, ends:{} });
+              }
+            });
+        }
+
+        pushVals("bus", tags.bus);
+        pushVals("tram", tags.tram);
+        pushVals("trolleybus", tags.trolleybus);
+        pushVals("bus", tags.lines);
+        pushVals("bus", tags.route_ref);
+
+        const seen = {};
+        return out.filter(x=>{
+          const k = x.mode + "|" + x.ref;
+          if(seen[k]) return false;
+          seen[k] = 1;
+          return true;
+        }).sort((a,b)=>{
+          if(a.mode!==b.mode) return (MODE_ORDER[a.mode]??9)-(MODE_ORDER[b.mode]??9);
+          return String(a.ref).localeCompare(String(b.ref),"ro",{numeric:true});
+        });
+      }
+
       function render(nodes, rels, origin, rad){
         const nearLines = groupRoutes(rels);
 
         const stops = nodes.map(n=>{
+          const tags = n.tags || {};
+
           const directRels = rels.filter(r =>
             (r.members || []).some(mm => mm.type === "node" && String(mm.ref) === String(n.id))
           );
@@ -280,14 +319,24 @@
           let lines = groupRoutes(directRels);
           let approx = false;
 
+          // fallback 1: din relațiile din zonă
           if (!lines.length && nearLines.length) {
             lines = nearLines;
             approx = true;
           }
 
+          // fallback 2: din tagurile stației
+          if (!lines.length) {
+            const fromTags = linesFromStopTags(tags);
+            if (fromTags.length) {
+              lines = fromTags;
+              approx = true;
+            }
+          }
+
           return {
             id:String(n.id),
-            name:(n.tags&&n.tags.name)||"Stație fără nume",
+            name:tags.name || "Stație fără nume",
             pos:[n.lat,n.lon],
             d:dist(origin,[n.lat,n.lon]),
             lines,
@@ -324,7 +373,7 @@
           if(s.approx){
             const h=document.createElement("div");
             h.className="hint";
-            h.textContent="Linii găsite în zonă (aproximativ).";
+            h.textContent="Linii estimate din datele disponibile în zonă.";
             li.appendChild(h);
           }
 
