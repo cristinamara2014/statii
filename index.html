@@ -101,7 +101,7 @@
   <div id="status">Apasă pe buton sau atinge un punct pe hartă.</div>
   <ul id="list"></ul>
 
-  <!-- Leaflet JS (trebuie înainte de scriptul nostru) -->
+  <!-- Leaflet JS -->
   <script
     src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
@@ -112,7 +112,7 @@
     (function(){
       if (!window.L) {
         document.getElementById("status").textContent =
-          "Eroare: Leaflet nu s-a încărcat (L lipsește). Verifică internetul/CDN.";
+          "Eroare: Leaflet nu s-a încărcat (L lipsește).";
         return;
       }
 
@@ -126,8 +126,10 @@
       ];
 
       const map = L.map("map").setView(CENTER, 14);
-      L.tileLayer("https://tile.openstreetmap.orgZoom: 19,
-        attribution: "© OpenStreetMap"
+
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap contributors"
       }).addTo(map);
 
       let me = null, circle = null, layer = L.layerGroup().addTo(map), markers = {};
@@ -406,7 +408,7 @@
           return;
         }
         if(!window.isSecureContext){
-          setStatus("Locația merge doar pe HTTPS (GitHub Pages).");
+          setStatus("Locația merge doar pe HTTPS (ex: GitHub Pages).");
           return;
         }
         setStatus("Aștept locația…");
