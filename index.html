@@ -181,7 +181,7 @@
             rel(bn.s)[type=route][route~"^(bus|tram|trolleybus)$"];
             rel(around.s:200)[type=route][route~"^(bus|tram|trolleybus)$"];
           );
-          out tags;`;
+          out body;`;
       }
 
       async function fetchOverpass(q, idx=0, errs=[]){
@@ -273,12 +273,14 @@
         const nearLines = groupRoutes(rels);
 
         const stops = nodes.map(n=>{
-          const directRels = rels.filter(r => (r.members||[]).some(mm => mm.type==="node" && String(mm.ref)===String(n.id)));
+          const directRels = rels.filter(r =>
+            (r.members || []).some(mm => mm.type === "node" && String(mm.ref) === String(n.id))
+          );
+
           let lines = groupRoutes(directRels);
           let approx = false;
 
-          // fallback mai permisiv: arată liniile găsite în zonă
-          if (nearLines.length) {
+          if (!lines.length && nearLines.length) {
             lines = nearLines;
             approx = true;
           }
