@@ -165,7 +165,7 @@
     async function loadCityJson(cityName){
       if(!cityName) return null;
       const slug = slugCity(cityName);
-      const path = `./data/${slug}.json`;
+      const path = `./${slug}.json`;
       try{
         const r = await fetch(path, {cache:"no-store"});
         if(!r.ok) return null;
